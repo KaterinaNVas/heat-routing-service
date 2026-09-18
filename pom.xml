@@ -40,6 +40,8 @@
         <!-- Геометрические операции -->
         <jts.version>1.19.0</jts.version>
 
+        <proj4j.version>1.4.3</proj4j.version>
+
     </properties>
 
     <dependencies>
@@ -92,6 +94,18 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.locationtech.proj4j</groupId>
+            <artifactId>proj4j</artifactId>
+            <version>${proj4j.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.locationtech.proj4j</groupId>
+            <artifactId>proj4j-epsg</artifactId>
+            <version>${proj4j.version}</version>
         </dependency>
 
     </dependencies>
