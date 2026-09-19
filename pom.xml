@@ -40,11 +40,41 @@
         <!-- Геометрические операции -->
         <jts.version>1.19.0</jts.version>
 
+<<<<<<< HEAD
         <proj4j.version>1.4.3</proj4j.version>
 
     </properties>
+=======
+    </properties>    <!-- Репозиторий OSGeo для GeoTools -->
+    <repositories>
+        <repository>
+            <id>osgeo-release</id>
+            <name>OSGeo Release Repository</name>
+            <url>https://repo.osgeo.org/repository/release/</url>
+            <releases><enabled>true</enabled></releases>
+            <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+    </repositories>
+>>>>>>> origin/dev-maria
 
-    <dependencies>
+    <dependencies>        <!-- JGraphT — графы и A* -->
+        <dependency>
+            <groupId>org.jgrapht</groupId>
+            <artifactId>jgrapht-core</artifactId>
+            <version>1.5.2</version>
+        </dependency>
+
+        <!-- GeoTools — чтение GeoJSON -->
+        <dependency>
+            <groupId>org.geotools</groupId>
+            <artifactId>gt-geojson</artifactId>
+            <version>28.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.geotools</groupId>
+            <artifactId>gt-referencing</artifactId>
+            <version>28.2</version>
+        </dependency>
 
         <!-- REST API -->
         <dependency>
