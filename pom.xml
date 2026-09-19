@@ -40,22 +40,24 @@
         <!-- Геометрические операции -->
         <jts.version>1.19.0</jts.version>
 
-<<<<<<< HEAD
         <proj4j.version>1.4.3</proj4j.version>
 
     </properties>
-=======
-    </properties>    <!-- Репозиторий OSGeo для GeoTools -->
+
+    <!-- Репозиторий OSGeo для GeoTools -->
     <repositories>
         <repository>
             <id>osgeo-release</id>
             <name>OSGeo Release Repository</name>
             <url>https://repo.osgeo.org/repository/release/</url>
-            <releases><enabled>true</enabled></releases>
-            <snapshots><enabled>false</enabled></snapshots>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
         </repository>
     </repositories>
->>>>>>> origin/dev-maria
 
     <dependencies>        <!-- JGraphT — графы и A* -->
         <dependency>
