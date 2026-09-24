@@ -49,6 +49,21 @@ public class DiameterCatalog {
         );
     }
 
+    /** Минимальный ДУ, одновременно выдерживающий расход и непрерывную длину. */
+    public int findMinimalDiameter(double flow, double lengthMeters) {
+        if (!Double.isFinite(flow) || flow < 0 ||
+                !Double.isFinite(lengthMeters) || lengthMeters < 0) {
+            throw new IllegalArgumentException("Расход и длина должны быть конечными неотрицательными числами");
+        }
+        for (Integer dn : new TreeMap<>(capacity).keySet()) {
+            if (capacity.get(dn) >= flow && maxLength.get(dn) >= lengthMeters) {
+                return dn;
+            }
+        }
+        throw new IllegalArgumentException("Нет подходящего ДУ для расхода " + flow
+                + " т/ч и длины " + lengthMeters + " м");
+    }
+
     public double getCapacity(int dn) {
         Double value = capacity.get(dn);
         if (value == null) throw new IllegalArgumentException("Неизвестный DN: " + dn);

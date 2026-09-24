@@ -66,4 +66,12 @@ class DiameterCatalogTest {
     void getMaxDiameter_returnsMax() {
         assertEquals(1400, catalog.getMaxDiameter());
     }
+
+    @Test
+    void findMinimalDiameter_considersBothFlowAndContinuousLength() {
+        assertEquals(100, catalog.findMinimalDiameter(20, 400));
+        assertEquals(125, catalog.findMinimalDiameter(20, 420));
+        assertThrows(IllegalArgumentException.class,
+                () -> catalog.findMinimalDiameter(20, 12_000));
+    }
 }
