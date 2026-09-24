@@ -27,7 +27,7 @@ routing:
   metric-crs: EPSG:32637
   grid-cell-size-meters: 3.0
   scoring:
-    length-weight: 0.7
-    cost-weight: 0.3
+    length-weight: 0.3
+    cost-weight: 0.7
     length-base-meters: 100.0
     cost-base-rubles: 25000000.0

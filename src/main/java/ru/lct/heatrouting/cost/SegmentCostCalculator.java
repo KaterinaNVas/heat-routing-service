@@ -17,10 +17,19 @@ public class SegmentCostCalculator {
     }
 
     public double calculateNewSegmentCost(NewSegment segment) {
+        return calculateNewSegmentCost(segment, 1.0);
+    }
+
+    /** В 2D Kгл=1; для наложенных специальных проходов передаётся максимум Kспец. */
+    public double calculateNewSegmentCost(NewSegment segment, double specialCoefficient) {
         if (segment == null) {
             throw new IllegalArgumentException("Участок не может быть null");
         }
-        return segment.getLength() * catalog.getNewBuildCost(segment.getDiameter());
+        if (!Double.isFinite(specialCoefficient) || specialCoefficient < 1.0) {
+            throw new IllegalArgumentException("Kспец должен быть конечным и не меньше 1");
+        }
+        return segment.getLength() * catalog.getNewBuildCost(segment.getDiameter())
+                * specialCoefficient;
     }
 
     public double calculateReconstructionCost(ExistingSegment segment, int requiredDn) {
