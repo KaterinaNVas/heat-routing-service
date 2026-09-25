@@ -67,4 +67,28 @@ class TerritoryRoutePlannerTest {
         assertEquals(0, route.getGeometry().getStartPoint().getX(), 1e-6);
         assertEquals(100, route.getGeometry().getEndPoint().getX(), 1e-6);
     }
+
+    @Test
+    void ignoresDistantRestrictionsOutsideLocalSearch() {
+        InputDataset data = dataset();
+        for (int i = 0; i < 100; i++) {
+            data.getRestrictions().add(new Restriction("remote-" + i,
+                    RestrictionType.PROHIBITED_SITE, null,
+                    square(1000 + 20 * i, 1005 + 20 * i, -5, 5)));
+        }
+        TerritoryRoutePlanner.Route route = new TerritoryRoutePlanner()
+                .find(data, oks(0, 0), 100).orElseThrow();
+        assertEquals(100, route.getGeometry().getLength(), 1e-6);
+    }
+
+    @Test
+    void routesAroundDenseBoundaryWithoutCrossingIt() {
+        InputDataset data = dataset();
+        Polygon obstacle = (Polygon) gf.createPoint(new Coordinate(50, 0)).buffer(10, 512);
+        obstacle.setSRID(32637);
+        data.getRestrictions().add(new Restriction("dense", RestrictionType.PROHIBITED_SITE, null, obstacle));
+        TerritoryRoutePlanner.Route route = new TerritoryRoutePlanner().find(data, oks(0, 0), 100).orElseThrow();
+        assertTrue(route.getGeometry().getLength() > 100);
+        assertTrue(route.getGeometry().distance(obstacle) >= 1.25);
+    }
 }

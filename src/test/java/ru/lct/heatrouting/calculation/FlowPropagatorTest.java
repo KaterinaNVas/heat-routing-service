@@ -44,6 +44,22 @@ class FlowPropagatorTest {
     }
 
     @Test
+    void returnsAllTreeEdgesWithZeroFlowWhenThereAreNoDemands() {
+        Node root = node("root", 0, 0);
+        Node junction = node("junction", 1, 0);
+        Node oks = node("oks", 2, 0);
+        Edge shared = edge("shared", junction, root);
+        Edge branch = edge("branch", oks, junction);
+
+        Map<String, Double> result = new FlowPropagator().propagate(root,
+                Map.of(junction, shared, oks, branch), Map.of());
+
+        assertEquals(Map.of("shared", 0.0, "branch", 0.0), result);
+        assertEquals(0.0, shared.getFlowTph());
+        assertEquals(0.0, branch.getFlowTph());
+    }
+
+    @Test
     void rejectsCycle() {
         Node root = node("root", 0, 0);
         Node a = node("a", 1, 0);
