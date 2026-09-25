@@ -6,6 +6,7 @@ import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.Polygon;
+import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -14,7 +15,10 @@ public class GeoJsonGeometryReader {
     private static final int WGS84_SRID = 4326;
 
     private final GeometryFactory geometryFactory =
-            new GeometryFactory(null, WGS84_SRID);
+            new GeometryFactory(
+                    new PrecisionModel(PrecisionModel.FLOATING),
+                    WGS84_SRID
+            );
 
     public Geometry read(JsonNode geometryNode) {
         if (geometryNode == null || geometryNode.isNull()) {
