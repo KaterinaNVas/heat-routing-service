@@ -39,7 +39,7 @@ class MultiConnectionCalculatorTest {
         Edge edgeB = edge("b", b, junction, 100);
 
         MultiConnectionCalculator calc = new MultiConnectionCalculator(
-                new FlowPropagator(), new VariantCalculator(0.7, 0.3));
+                new FlowPropagator(), new VariantCalculator(0.7, 0.3), new TopologyValidator());
 
         VariantSummary summary = calc.calculate(
                 "v1",
@@ -73,7 +73,7 @@ class MultiConnectionCalculatorTest {
         Edge edgeOrphan = edge("orphan", orphan, junction, 100);
 
         MultiConnectionCalculator calc = new MultiConnectionCalculator(
-                new FlowPropagator(), new VariantCalculator(0.7, 0.3));
+                new FlowPropagator(), new VariantCalculator(0.7, 0.3), new TopologyValidator());
 
         // demand только для a -> orphan-ребро получит flow = 0
         VariantSummary summary = calc.calculate(
@@ -98,7 +98,7 @@ class MultiConnectionCalculatorTest {
         Edge e = edge("a", a, root, 100);
 
         MultiConnectionCalculator calc = new MultiConnectionCalculator(
-                new FlowPropagator(), new VariantCalculator(0.7, 0.3));
+                new FlowPropagator(), new VariantCalculator(0.7, 0.3), new TopologyValidator());
 
         VariantSummary summary = calc.calculate(
                 "v1", root, Map.of(a, e), Map.of(a, 2.0),
@@ -118,7 +118,7 @@ class MultiConnectionCalculatorTest {
         Edge e = edge("a", a, root, 100);
 
         MultiConnectionCalculator calc = new MultiConnectionCalculator(
-                new FlowPropagator(), new VariantCalculator(0.7, 0.3));
+                new FlowPropagator(), new VariantCalculator(0.7, 0.3), new TopologyValidator());
 
         VariantSummary summary = calc.calculate(
                 "v1", root, Map.of(a, e), Map.of(a, 2.0),
@@ -133,7 +133,7 @@ class MultiConnectionCalculatorTest {
     @Test
     void rejectsEmptyNetwork() {
         MultiConnectionCalculator calc = new MultiConnectionCalculator(
-                new FlowPropagator(), new VariantCalculator(0.7, 0.3));
+                new FlowPropagator(), new VariantCalculator(0.7, 0.3), new TopologyValidator());
         assertThrows(IllegalArgumentException.class,
                 () -> calc.calculate("v1", node("root", 0, 0),
                         Map.of(), Map.of(), false, List.of(), List.of()));

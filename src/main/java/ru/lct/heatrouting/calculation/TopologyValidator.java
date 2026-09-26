@@ -66,4 +66,49 @@ public class TopologyValidator {
             }
         }
     }
+
+    /**
+    * Проверяет, что ПОДОБРАННЫЙ ДУ не уменьшается по пути от ОКС к корню.
+    * По ТЗ: по направлению к месту присоединения расход растёт,
+    * значит подобранный ДУ не уменьшается.
+    *
+    * @param root             корневой узел (камера)
+    * @param parentEdge       карта: узел → ребро к родителю
+    * @param demands          карта: ОКС → расход
+    * @param pickedDiameters  карта: edgeId → подобранный ДУ
+    */
+   public void validatePickedDiameterMonotonicity(Node root,
+                                                  Map<Node, Edge> parentEdge,
+                                                  Map<Node, Double> demands,
+                                                  Map<String, Integer> pickedDiameters) {
+    	if (root == null || parentEdge == null || demands == null || pickedDiameters == null) {
+            throw new IllegalArgumentException("Аргументы не могут быть null");
+    	}
+    	for (Node oks : demands.keySet()) {
+        	if (oks.equals(root)) continue;
+       		Node current = oks;
+        	int previousDn = -1;
+        	while (!current.equals(root)) {
+            		Edge edge = parentEdge.get(current);
+        		if (edge == null) {
+                	     throw new IllegalArgumentException(
+                    		    "Нет пути к корню от узла " + current.getId());
+            		}
+            		Integer dn = pickedDiameters.get(edge.getId());
+            		if (dn == null) {
+                	// Участок отфильтрован (нулевой расход) — пропускаем
+                		current = edge.getTo();
+                		continue;
+            		}
+            		if (previousDn >= 0 && dn < previousDn) {
+                            throw new IllegalStateException(
+                    		"Подобранный ДУ уменьшается к месту присоединения: "
+                        		+ previousDn + " → " + dn
+                        		+ " (ребро " + edge.getId() + ")");
+            		}
+            		previousDn = dn;
+            		current = edge.getTo();
+                }
+	}
+   }
 }
