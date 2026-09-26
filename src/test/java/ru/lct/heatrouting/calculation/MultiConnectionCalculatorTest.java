@@ -62,6 +62,36 @@ class MultiConnectionCalculatorTest {
     }
 
     @Test
+    void zeroFlowEdgeIsNotIncludedInSegmentsAndCost() {
+        Node root = node("root", 0, 0);
+        Node junction = node("junction", 100, 0);
+        Node a = node("a", 200, 0);
+        Node orphan = node("orphan", 300, 0);
+
+        Edge shared = edge("shared", junction, root, 100);
+        Edge edgeA = edge("a", a, junction, 100);
+        Edge edgeOrphan = edge("orphan", orphan, junction, 100);
+
+        MultiConnectionCalculator calc = new MultiConnectionCalculator(
+                new FlowPropagator(), new VariantCalculator(0.7, 0.3));
+
+        // demand только для a -> orphan-ребро получит flow = 0
+        VariantSummary summary = calc.calculate(
+                "v1",
+                root,
+                Map.of(junction, shared, a, edgeA, orphan, edgeOrphan),
+                Map.of(a, 5.0),
+                false,
+                List.of(),
+                List.of());
+
+        // Участок orphan имеет flow=0 и не должен попасть в segments и стоимость
+        assertEquals(2, summary.getSegments().size());
+        assertEquals(200.0, summary.getNewNetworkLength(), 1e-9);
+        assertTrue(summary.getSegments().stream().noneMatch(s -> s.getId().equals("orphan")));
+    }
+
+    @Test
     void existingChamberAddsTieInCost() {
         Node root = node("root", 0, 0);
         Node a = node("a", 100, 0);
