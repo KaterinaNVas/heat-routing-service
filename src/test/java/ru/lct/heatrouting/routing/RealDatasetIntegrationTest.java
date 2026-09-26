@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,13 +28,8 @@ class RealDatasetIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        datasetReader = new DatasetReader(
-                new ObjectMapper(),
-                new GeoJsonGeometryReader()
-        );
-        transformService = new DatasetCoordinateTransformService(
-                new CoordinateTransformService()
-        );
+        datasetReader = new DatasetReader(new ObjectMapper(), new GeoJsonGeometryReader());
+        transformService = new DatasetCoordinateTransformService(new CoordinateTransformService());
         planner = new TerritoryRoutePlanner();
     }
 
@@ -41,59 +37,29 @@ class RealDatasetIntegrationTest {
     void routesAllConnectionPointsOnRealDataset() throws Exception {
         URL url = getClass().getClassLoader().getResource("test-dataset.geojson");
         assertNotNull(url, "test-dataset.geojson не найден в classpath");
-        Path path = Path.of(url.toURI());
-
-        InputDataset wgs84 = datasetReader.read(path);
-        InputDataset metric = transformService.toMetric(wgs84);
+        InputDataset metric = transformService.toMetric(datasetReader.read(Path.of(url.toURI())));
 
         assertNotNull(metric.getSource(), "Источник не найден");
-        assertTrue(metric.getHeatNetwork().size() > 0, "Нет участков heat_network");
-        assertTrue(metric.getConnectionPoints().size() > 0, "Нет ОКС");
-        assertTrue(metric.getRestrictions().size() > 0, "Нет restrictions");
+        assertTrue(!metric.getHeatNetwork().isEmpty(), "Нет участков heat_network");
+        assertEquals(17, metric.getConnectionPoints().size(), "Ожидалось 17 ОКС");
+        assertTrue(!metric.getRestrictions().isEmpty(), "Нет restrictions");
 
-        System.out.println("=== Distances OKS to network ===");
-        for (ConnectionPoint oks : metric.getConnectionPoints()) {
-            double minDist = Double.MAX_VALUE;
-            String nearestId = null;
-            for (HeatNetworkSegment seg : metric.getHeatNetwork()) {
-                double d = oks.getGeometry().distance(seg.getGeometry());
-                if (d < minDist) {
-                    minDist = d;
-                    nearestId = seg.getId();
-                }
-            }
-            System.out.println("OKS " + oks.getId()
-                    + " minDist=" + String.format("%.1f", minDist)
-                    + " m, nearest=" + nearestId
-                    + " srid=" + oks.getGeometry().getSRID());
-        }
-
-        int total = metric.getConnectionPoints().size();
-        int routed = 0;
-        int notRouted = 0;
         List<String> notRoutedIds = new ArrayList<>();
-
-        System.out.println("=== Routing with DN=100 ===");
         for (ConnectionPoint oks : metric.getConnectionPoints()) {
-            var routeOpt = planner.find(metric, oks, 100);
-            if (routeOpt.isPresent()) {
-                routed++;
-            } else {
-                notRouted++;
+            TerritoryRoutePlanner.Route route = planner.find(metric, oks, 100).orElse(null);
+            if (route == null) {
                 notRoutedIds.add(oks.getId());
+                continue;
             }
+            assertTrue(route.getGeometry().getLength() > 0, "Пустой маршрут ОКС " + oks.getId());
+            assertTrue(route.getGeometry().getStartPoint().distance(oks.getGeometry()) < 0.01,
+                    "Неверное начало маршрута ОКС " + oks.getId());
+            HeatNetworkSegment segment = metric.getHeatNetwork().stream()
+                    .filter(s -> s.getId().equals(route.getExistingSegmentId()))
+                    .findFirst().orElseThrow();
+            assertTrue(segment.getGeometry().distance(route.getGeometry().getEndPoint()) < 0.01,
+                    "Маршрут ОКС " + oks.getId() + " не доходит до сети");
         }
-
-        System.out.println("=== Real Dataset Routing ===");
-        System.out.println("Всего ОКС:          " + total);
-        System.out.println("Подключено:         " + routed);
-        System.out.println("Не подключено:      " + notRouted);
-        if (!notRoutedIds.isEmpty()) {
-            System.out.println("Не подключены (id): " + notRoutedIds);
-        }
-
-        System.out.println("ВНИМАНИЕ: TerritoryRoutePlanner возвращает empty "
-        + "из-за MAX_VERTICES=1600 на реальном датасете. "
-        + "См. сообщение в общем чате.");
+        assertTrue(notRoutedIds.isEmpty(), "Нет маршрута для ОКС " + notRoutedIds);
     }
 }

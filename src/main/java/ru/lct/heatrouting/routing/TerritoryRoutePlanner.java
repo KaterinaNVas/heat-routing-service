@@ -23,7 +23,7 @@ import java.util.PriorityQueue;
 /** Первый 2D-поиск: граф видимости вокруг непроходимых ограничений в EPSG:32637. */
 @Component
 public class TerritoryRoutePlanner {
-    private static final int MAX_VERTICES = 400;
+    private static final int[] VERTEX_BUDGETS = {400, 800, 1600};
     private static final double PORTAL_MARGIN = 0.05;
     private static final double BUFFER_MARGIN = 0.10;
     private static final double MIN_SEARCH_RADIUS_METERS = 100;
@@ -80,34 +80,35 @@ public class TerritoryRoutePlanner {
             barrierOwners.add(restriction);
         }
         Point start = oks.getGeometry();
+        List<Point> portals = new ArrayList<>();
         if (ownOks != null) {
             Geometry expanded = ownOks.getGeometry().buffer(clearance(RestrictionType.OKS, diameter)
                     + halfWidth + BUFFER_MARGIN + PORTAL_MARGIN, 16);
-            Coordinate nearest = DistanceOp.nearestPoints(ownOks.getGeometry().getBoundary(), start)[0];
-            double dx = nearest.x - start.getX();
-            double dy = nearest.y - start.getY();
-            double norm = Math.hypot(dx, dy);
-            if (norm < 1e-8) return Optional.empty();
-            // Двигаемся по прямой через ближайшую границу до внешней стороны зоны отступа.
-            double low = norm;
-            double high = norm + 2 * (clearance(RestrictionType.OKS, diameter) + halfWidth + 1);
-            for (int i = 0; i < 45; i++) {
-                double middle = (low + high) / 2;
-                Point p = point(start.getX() + middle * dx / norm,
-                        start.getY() + middle * dy / norm);
-                if (expanded.covers(p)) low = middle; else high = middle;
-            }
-            Point exit = point(start.getX() + high * dx / norm, start.getY() + high * dy / norm);
             List<Geometry> otherBarriers = new ArrayList<>();
             for (int i = 0; i < barriers.size(); i++) {
                 if (barrierOwners.get(i) != ownOks) otherBarriers.add(barriers.get(i));
             }
-            if (!visible(start, exit, otherBarriers)) {
-                return Optional.empty();
+            List<Coordinate> boundary = new ArrayList<>();
+            for (Coordinate c : expanded.getBoundary().getCoordinates()) boundary.add(c);
+            boundary.sort(Comparator.comparingDouble(c -> start.getCoordinate().distance(c)));
+            for (Coordinate c : boundary) {
+                double distance = start.getCoordinate().distance(c);
+                if (distance < 1e-8 || distance > searchRadius) continue;
+                double scale = (distance + 0.25) / distance;
+                Point exit = point(start.getX() + (c.x - start.getX()) * scale,
+                        start.getY() + (c.y - start.getY()) * scale);
+                if (expanded.covers(exit) || !visible(start, exit, otherBarriers)) continue;
+                if (portals.stream().anyMatch(p -> p.distance(exit) < 1.0)) continue;
+                portals.add(exit);
+                if (portals.size() == 32) break;
             }
-            start = exit;
+            if (portals.isEmpty()) return Optional.empty();
         }
-        List<Point> vertices = routeVertices(start, barriers);
+        for (int vertexBudget : VERTEX_BUDGETS) {
+        List<Point> vertices = routeVertices(start, barriers, vertexBudget);
+        int firstPortal = vertices.size();
+        vertices.addAll(portals);
+        int afterPortals = vertices.size();
         // Врезка выбирается на ближайшей проекции точки ОКС на каждый существующий участок.
         List<HeatNetworkSegment> segments = metricDataset.getHeatNetwork();
         List<Integer> targetIndices = new ArrayList<>();
@@ -160,14 +161,16 @@ public class TerritoryRoutePlanner {
                 List<Coordinate> coordinates = new ArrayList<>();
                 for (int v = u; v != -1; v = previous[v]) coordinates.add(vertices.get(v).getCoordinate());
                 java.util.Collections.reverse(coordinates);
-                if (ownOks != null) coordinates.add(0, oks.getGeometry().getCoordinate());
                 int segmentIndex = targetIndices.indexOf(u);
                 LineString line = factory.createLineString(coordinates.toArray(new Coordinate[0]));
                 line.setSRID(32637);
                 return Optional.of(new Route(line, targets.get(segmentIndex).getId(), vertices.get(u)));
             }
             for (int v = 0; v < count; v++) {
-                if (u == v || settled[v] || !visible(vertices.get(u), vertices.get(v), barriers)) continue;
+                if (u == v || settled[v]) continue;
+                if (u == 0 && ownOks != null) {
+                    if (v < firstPortal || v >= afterPortals) continue;
+                } else if (!visible(vertices.get(u), vertices.get(v), barriers)) continue;
                 double alternative = distances[u] + vertices.get(u).distance(vertices.get(v));
                 if (alternative < distances[v]) {
                     distances[v] = alternative;
@@ -176,11 +179,12 @@ public class TerritoryRoutePlanner {
                 }
             }
         }
+        }
         return Optional.empty();
     }
 
     /** Сокращаем только вершины графа: проверка проходимости использует точные барьеры. */
-    private List<Point> routeVertices(Point start, List<Geometry> barriers) {
+    private List<Point> routeVertices(Point start, List<Geometry> barriers, int maxVertices) {
         for (double tolerance : new double[]{0, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64}) {
             List<Point> vertices = new ArrayList<>();
             vertices.add(start);
@@ -193,7 +197,7 @@ public class TerritoryRoutePlanner {
                     // Упрощённые хорды должны проходить снаружи исходной зоны.
                     Point vertex = point(candidate.x, candidate.y);
                     if (vertices.stream().noneMatch(p -> p.equalsExact(vertex))) vertices.add(vertex);
-                    if (vertices.size() > MAX_VERTICES) {
+                    if (vertices.size() > maxVertices) {
                         overflow = true;
                         break;
                     }
