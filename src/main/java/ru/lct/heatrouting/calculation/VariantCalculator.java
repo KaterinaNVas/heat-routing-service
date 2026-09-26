@@ -60,4 +60,20 @@ public class VariantCalculator {
         return costWeight * calculatedCost / 25_000_000.0
                 + lengthWeight * newNetworkLength / 100.0;
     }
+
+    /**
+     * Объединяет коэффициенты специального прохода.
+     * По ТЗ: при наложении берётся МАКСИМАЛЬНЫЙ, не перемножение.
+     */
+    public double combineKSpec(double... values) {
+        double max = 1.0;
+        for (double v : values) {
+            if (!Double.isFinite(v) || v < 0) {
+                throw new IllegalArgumentException(
+                    "Кспец должен быть конечным и неотрицательным: " + v);
+            }
+            max = Math.max(max, v);
+        }
+        return max;
+    }
 }
