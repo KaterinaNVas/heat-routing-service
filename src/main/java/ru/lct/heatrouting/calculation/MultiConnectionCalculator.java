@@ -6,6 +6,7 @@ import ru.lct.heatrouting.cost.SegmentCostCalculator;
 import ru.lct.heatrouting.model.Edge;
 import ru.lct.heatrouting.model.Node;
 import ru.lct.heatrouting.network.NewSegment;
+import ru.lct.heatrouting.network.SingleConnectionDraftBuilder;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -61,7 +62,9 @@ public class MultiConnectionCalculator {
             Edge edge = entry.getValue();
             double flow = flows.get(edge.getId());
 
-            // Участки с нулевым расходом не включаем в строительство (ТЗ, разъяснение)
+            System.out.println("edge.id: " + edge.getId() + ", flow: " + flow);
+
+            // Участки с нулевым расходом не включаем в строительство
             if (flow <= 0.0) {
                 continue;
             }
@@ -74,7 +77,12 @@ public class MultiConnectionCalculator {
             diametersByEdgeId.put(edge.getId(), dn);
             maxDiameter = Math.max(maxDiameter, dn);
             totalLength += length;
+
+            System.out.println("SEGMENT CREATED: " + segment.getId()
+                    + ", dn=" + dn + ", length=" + length);
         }
+
+        System.out.println("TOTAL segments in map: " + segmentsByEdgeId.size());
 
         // 4. Проверка предельной длины для каждого пути ОКС
         for (Node oks : demands.keySet()) {
@@ -128,6 +136,70 @@ public class MultiConnectionCalculator {
         );
     }
 
+    public VariantSummary calculateVariant(String variantId,
+                                           List<SingleConnectionDraftBuilder.Draft> drafts,
+                                           List<Object> unconnectedOksIds,
+                                           Collection<Double> unconnectedFlows) {
+        Objects.requireNonNull(variantId, "variantId");
+        Objects.requireNonNull(drafts, "drafts");
+        if (drafts.isEmpty()) {
+            throw new IllegalArgumentException("Список Draft не может быть пустым");
+        }
+
+        List<NewSegment> allSegments = new ArrayList<>();
+        Map<String, Double> allFlows = new HashMap<>();
+        double totalConstructionCost = 0.0;
+        double totalChamberCost = 0.0;
+        int totalTieIns = 0;
+        double totalTieInCost = 0.0;
+        double totalLength = 0.0;
+
+        int i = 0;
+        for (SingleConnectionDraftBuilder.Draft draft : drafts) {
+            i++;
+            VariantSummary summary = calculate(
+                variantId,
+                draft.getRoot(),
+                draft.getParentEdge(),
+                draft.getDemands(),
+                draft.getConnection().isExistingChamber(),
+                List.of(),
+                List.of());
+
+            allSegments.addAll(summary.getSegments());
+            allFlows.putAll(summary.getFlowsByEdgeId());
+            totalConstructionCost += summary.getConstructionCost();
+            totalChamberCost += summary.getChamberConstructionCost();
+            totalTieIns += summary.getExistingChamberTieInCount();
+            totalTieInCost += summary.getExistingChamberTieInCost();
+            totalLength += summary.getNewNetworkLength();
+
+        }
+
+        double penalty = unconnectedFlows == null || unconnectedFlows.isEmpty()
+            ? 0.0
+            : variantCalculator.unconnectedPenalty(unconnectedFlows);
+
+        double calculatedCost = totalConstructionCost + penalty;
+        double score = variantCalculator.score(calculatedCost, totalLength);
+
+        return new VariantSummary(
+            variantId,
+            1,
+            allSegments,
+            allFlows,
+            totalConstructionCost,
+            totalChamberCost,
+            totalTieIns,
+            totalTieInCost,
+            penalty,
+            calculatedCost,
+            totalLength,
+            score,
+            unconnectedOksIds
+        );
+    }
+
     private List<NewSegment> collectPath(Node root, Node oks,
                                          Map<Node, Edge> parentEdge,
                                          Map<String, NewSegment> segmentsByEdgeId) {
@@ -143,7 +215,6 @@ public class MultiConnectionCalculator {
             if (segment != null) {
                 path.add(segment);
             }
-            // Если участок отфильтрован — пропускаем, но идём дальше к корню
             current = edge.getTo();
         }
         return path;

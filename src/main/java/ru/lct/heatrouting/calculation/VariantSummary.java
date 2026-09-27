@@ -67,8 +67,9 @@ public final class VariantSummary {
 
     @Override
     public String toString() {
-        return "VariantSummary{" + variantId + ", rank=" + rank
-                + ", cost=" + calculatedCost + ", length=" + newNetworkLength
-                + ", score=" + score + "}";
+    	return "VariantSummary{" + variantId + ", rank=" + rank
+        	+ ", segments=" + (segments == null ? "null" : segments.size())
+        	+ ", cost=" + calculatedCost + ", length=" + newNetworkLength
+        	+ ", score=" + score + "}";
     }
 }
