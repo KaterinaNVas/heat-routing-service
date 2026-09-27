@@ -8,6 +8,7 @@ import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.operation.distance.DistanceOp;
 import org.locationtech.jts.simplify.DouglasPeuckerSimplifier;
 import org.springframework.stereotype.Component;
+import ru.lct.heatrouting.geo.RouteAngleValidator;
 import ru.lct.heatrouting.model.ConnectionPoint;
 import ru.lct.heatrouting.model.HeatNetworkSegment;
 import ru.lct.heatrouting.model.InputDataset;
@@ -28,6 +29,7 @@ public class TerritoryRoutePlanner {
     private static final double BUFFER_MARGIN = 0.10;
     private static final double MIN_SEARCH_RADIUS_METERS = 100;
     private final GeometryFactory factory = new GeometryFactory();
+    private final RouteAngleValidator angleValidator = new RouteAngleValidator();
 
     public Optional<Route> find(InputDataset metricDataset, ConnectionPoint oks, int diameter) {
         return findInternal(metricDataset, oks, diameter, null, null);
@@ -164,6 +166,7 @@ public class TerritoryRoutePlanner {
                 int segmentIndex = targetIndices.indexOf(u);
                 LineString line = factory.createLineString(coordinates.toArray(new Coordinate[0]));
                 line.setSRID(32637);
+                line = shortcutOwnOksExit(line, ownOks, barriers, barrierOwners, diameter);
                 return Optional.of(new Route(line, targets.get(segmentIndex).getId(), vertices.get(u)));
             }
             for (int v = 0; v < count; v++) {
@@ -181,6 +184,33 @@ public class TerritoryRoutePlanner {
         }
         }
         return Optional.empty();
+    }
+
+    private LineString shortcutOwnOksExit(LineString line, Restriction ownOks,
+                                          List<Geometry> barriers,
+                                          List<Restriction> barrierOwners, int diameter) {
+        if (ownOks == null || line.getNumPoints() < 3
+                || angleValidator.validate(line).isValid()) return line;
+        Coordinate[] points = line.getCoordinates();
+        Point first = point(points[0].x, points[0].y);
+        Point third = point(points[2].x, points[2].y);
+        List<Geometry> otherBarriers = new ArrayList<>();
+        for (int i = 0; i < barriers.size(); i++) {
+            if (barrierOwners.get(i) != ownOks) otherBarriers.add(barriers.get(i));
+        }
+        if (!visible(first, third, otherBarriers)) return line;
+        Geometry expanded = ownOks.getGeometry().buffer(
+                clearance(RestrictionType.OKS, diameter)
+                        + width(diameter) / 2 + BUFFER_MARGIN + PORTAL_MARGIN, 16);
+        if (expanded.covers(third)) return line;
+        LineString directExit = factory.createLineString(new Coordinate[]{points[0], points[2]});
+        if (directExit.difference(expanded).getNumGeometries() != 1) return line;
+        List<Coordinate> shortened = new ArrayList<>();
+        shortened.add(points[0]);
+        for (int i = 2; i < points.length; i++) shortened.add(points[i]);
+        LineString candidate = factory.createLineString(shortened.toArray(new Coordinate[0]));
+        candidate.setSRID(32637);
+        return angleValidator.validate(candidate).isValid() ? candidate : line;
     }
 
     /** Сокращаем только вершины графа: проверка проходимости использует точные барьеры. */
