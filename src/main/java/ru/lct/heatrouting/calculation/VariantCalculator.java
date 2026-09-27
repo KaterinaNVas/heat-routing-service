@@ -11,8 +11,8 @@ public class VariantCalculator {
     private final double costWeight;
     private final double lengthWeight;
 
-    public VariantCalculator(@Value("${routing.scoring.cost-weight:0.7}") double costWeight,
-                             @Value("${routing.scoring.length-weight:0.3}") double lengthWeight) {
+    public VariantCalculator(@Value("${routing.scoring.cost-weight:0.3}") double costWeight,
+                             @Value("${routing.scoring.length-weight:0.7}") double lengthWeight) {
         if (!Double.isFinite(costWeight) || !Double.isFinite(lengthWeight) ||
                 costWeight < 0 || lengthWeight < 0 ||
                 Math.abs(costWeight + lengthWeight - 1.0) > 1e-9) {
