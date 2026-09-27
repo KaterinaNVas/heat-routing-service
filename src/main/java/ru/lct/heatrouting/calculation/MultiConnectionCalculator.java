@@ -52,6 +52,12 @@ public class MultiConnectionCalculator {
         for (Map.Entry<Node, Edge> entry : parentEdge.entrySet()) {
             Edge edge = entry.getValue();
             double flow = flows.get(edge.getId());
+
+            // Участки с нулевым расходом не включаем в строительство (ТЗ, разъяснение)
+            if (flow <= 0.0) {
+                continue;
+            }
+
             double length = edge.getLengthMeters();
             int dn = catalog.findMinimalDiameter(flow, length);
 
