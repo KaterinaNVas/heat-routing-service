@@ -2,6 +2,8 @@ package ru.lct.heatrouting.network;
 
 import org.locationtech.jts.geom.LineString;
 import org.springframework.stereotype.Component;
+import ru.lct.heatrouting.geo.RouteAngleValidator;
+import ru.lct.heatrouting.geo.RouteValidationResult;
 import ru.lct.heatrouting.model.ConnectionPoint;
 import ru.lct.heatrouting.model.Edge;
 import ru.lct.heatrouting.model.Node;
@@ -16,6 +18,7 @@ import java.util.Objects;
 @Component
 public class MultiConnectionDraftBuilder {
     private static final double TOLERANCE = 0.01;
+    private final RouteAngleValidator angleValidator = new RouteAngleValidator();
 
     public List<Draft> build(MultiOksRoutePreparationService.Preparation preparation) {
         Objects.requireNonNull(preparation, "preparation");
@@ -50,6 +53,11 @@ public class MultiConnectionDraftBuilder {
                         || route.getEndPoint().distance(root.getPoint()) > TOLERANCE
                         || route.getLength() <= TOLERANCE) {
                     throw new IllegalArgumentException("Некорректный маршрут ОКС " + oks.getId());
+                }
+                RouteValidationResult validation = angleValidator.validate(route);
+                if (!validation.isValid()) {
+                    throw new IllegalArgumentException("Недопустимый маршрут ОКС "
+                            + oks.getId() + ": " + validation.getErrors());
                 }
                 // Overlapping lines are the same pipe, not two independent construction items.
                 // A junction must be created there before the variant can be priced.
