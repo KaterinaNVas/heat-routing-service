@@ -5,9 +5,11 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.Polygon;
 import ru.lct.heatrouting.calculation.FlowPropagator;
 import ru.lct.heatrouting.calculation.MultiConnectionCalculator;
 import ru.lct.heatrouting.calculation.MultiTreeVariantCalculator;
+import ru.lct.heatrouting.calculation.SpecialCrossingCostCalculator;
 import ru.lct.heatrouting.calculation.TopologyValidator;
 import ru.lct.heatrouting.calculation.VariantCalculator;
 import ru.lct.heatrouting.calculation.VariantSummary;
@@ -15,6 +17,11 @@ import ru.lct.heatrouting.model.ConnectionPoint;
 import ru.lct.heatrouting.model.HeatChamber;
 import ru.lct.heatrouting.model.HeatNetworkSegment;
 import ru.lct.heatrouting.model.InputDataset;
+import ru.lct.heatrouting.model.Restriction;
+import ru.lct.heatrouting.model.RestrictionType;
+import ru.lct.heatrouting.model.Edge;
+import ru.lct.heatrouting.cost.DiameterCatalog;
+import ru.lct.heatrouting.cost.SegmentCostCalculator;
 import ru.lct.heatrouting.routing.TerritoryRoutePlanner;
 
 import java.util.List;
@@ -75,5 +82,36 @@ class MultiConnectionDraftBuilderTest {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> new MultiConnectionDraftBuilder().build(prepare(dataset(true))));
         assertTrue(error.getMessage().contains("общий участок"));
+    }
+
+    @Test
+    void specialCrossingRaisesTotalOnlyForCrossedLength() {
+        List<MultiConnectionDraftBuilder.Draft> drafts =
+                new MultiConnectionDraftBuilder().build(prepare(dataset(false)));
+        VariantCalculator pricing = new VariantCalculator(0.3, 0.7);
+        MultiTreeVariantCalculator totals = new MultiTreeVariantCalculator(
+                new MultiConnectionCalculator(new FlowPropagator(), pricing,
+                        new TopologyValidator()), pricing);
+        VariantSummary base = totals.calculateVariant("v1", drafts, List.of(), List.of());
+        Polygon road = factory.createPolygon(new Coordinate[]{
+                new Coordinate(20, -10), new Coordinate(30, -10),
+                new Coordinate(30, 10), new Coordinate(20, 10),
+                new Coordinate(20, -10)});
+        List<Restriction> restrictions = List.of(
+                new Restriction("road", RestrictionType.ROAD, null, road));
+        VariantSummary withRoad = totals.calculateVariant("v1", drafts, List.of(),
+                List.of(), restrictions);
+        SegmentCostCalculator prices = new SegmentCostCalculator(new DiameterCatalog());
+        SpecialCrossingCostCalculator special = new SpecialCrossingCostCalculator();
+        double expectedExtra = 0;
+        for (var segment : base.getSegments()) {
+            Edge edge = drafts.get(0).getParentEdge().values().stream()
+                    .filter(e -> e.getId().equals(segment.getId())).findFirst().orElseThrow();
+            expectedExtra += special.calculate(segment, edge.getGeometry(), restrictions)
+                    - prices.calculateNewSegmentCost(segment);
+        }
+        assertTrue(expectedExtra > 0);
+        assertEquals(base.getConstructionCost() + expectedExtra,
+                withRoad.getConstructionCost(), 0.01);
     }
 }

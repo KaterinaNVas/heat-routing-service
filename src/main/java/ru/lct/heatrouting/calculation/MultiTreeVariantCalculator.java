@@ -1,6 +1,10 @@
 package ru.lct.heatrouting.calculation;
 
 import org.springframework.stereotype.Component;
+import ru.lct.heatrouting.cost.DiameterCatalog;
+import ru.lct.heatrouting.cost.SegmentCostCalculator;
+import ru.lct.heatrouting.model.Edge;
+import ru.lct.heatrouting.model.Restriction;
 import ru.lct.heatrouting.network.MultiConnectionDraftBuilder;
 import ru.lct.heatrouting.network.NewSegment;
 
@@ -18,6 +22,9 @@ import java.util.Set;
 public class MultiTreeVariantCalculator {
     private final MultiConnectionCalculator calculator;
     private final VariantCalculator costs;
+    private final SpecialCrossingCostCalculator crossings = new SpecialCrossingCostCalculator();
+    private final SegmentCostCalculator basePrices =
+            new SegmentCostCalculator(new DiameterCatalog());
 
     public MultiTreeVariantCalculator(MultiConnectionCalculator calculator, VariantCalculator costs) {
         this.calculator = Objects.requireNonNull(calculator, "calculator");
@@ -28,8 +35,17 @@ public class MultiTreeVariantCalculator {
                                            List<MultiConnectionDraftBuilder.Draft> drafts,
                                            List<Object> unconnectedOksIds,
                                            Collection<Double> unconnectedFlows) {
+        return calculateVariant(variantId, drafts, unconnectedOksIds, unconnectedFlows, List.of());
+    }
+
+    public VariantSummary calculateVariant(String variantId,
+                                           List<MultiConnectionDraftBuilder.Draft> drafts,
+                                           List<Object> unconnectedOksIds,
+                                           Collection<Double> unconnectedFlows,
+                                           List<Restriction> restrictions) {
         Objects.requireNonNull(variantId, "variantId");
         Objects.requireNonNull(drafts, "drafts");
+        Objects.requireNonNull(restrictions, "restrictions");
         if (drafts.isEmpty()) throw new IllegalArgumentException("Нет деревьев для расчёта");
 
         List<NewSegment> segments = new ArrayList<>();
@@ -62,6 +78,13 @@ public class MultiTreeVariantCalculator {
             }
             segments.addAll(tree.getSegments());
             constructionCost += tree.getConstructionCost();
+            Map<String, Edge> edges = new HashMap<>();
+            for (Edge edge : draft.getParentEdge().values()) edges.put(edge.getId(), edge);
+            for (NewSegment segment : tree.getSegments()) {
+                Edge edge = edges.get(segment.getId());
+                constructionCost += crossings.calculate(segment, edge.getGeometry(), restrictions)
+                        - basePrices.calculateNewSegmentCost(segment);
+            }
             chamberCost += tree.getChamberConstructionCost();
             tieInCost += tree.getExistingChamberTieInCost();
             tieIns += tree.getExistingChamberTieInCount();

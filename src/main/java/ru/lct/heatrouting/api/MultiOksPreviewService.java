@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import ru.lct.heatrouting.calculation.MultiTreeVariantCalculator;
 import ru.lct.heatrouting.calculation.VariantSummary;
 import ru.lct.heatrouting.calculation.VariantCalculator;
+import ru.lct.heatrouting.calculation.SpecialCrossingCostCalculator;
 import ru.lct.heatrouting.geo.CoordinateTransformService;
 import ru.lct.heatrouting.geo.DatasetCoordinateTransformService;
 import ru.lct.heatrouting.importdata.DatasetReader;
@@ -21,8 +22,6 @@ import ru.lct.heatrouting.model.Node;
 import ru.lct.heatrouting.network.MultiConnectionDraftBuilder;
 import ru.lct.heatrouting.network.MultiOksRoutePreparationService;
 import ru.lct.heatrouting.network.NewSegment;
-import ru.lct.heatrouting.cost.DiameterCatalog;
-import ru.lct.heatrouting.cost.SegmentCostCalculator;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -46,8 +45,7 @@ public class MultiOksPreviewService {
     private final MultiConnectionDraftBuilder builder;
     private final MultiTreeVariantCalculator calculator;
     private final VariantCalculator variantCosts;
-    private final SegmentCostCalculator segmentCosts =
-            new SegmentCostCalculator(new DiameterCatalog());
+    private final SpecialCrossingCostCalculator specialCosts = new SpecialCrossingCostCalculator();
 
     public MultiOksPreviewService(ObjectMapper mapper, DatasetReader reader,
                                   DatasetCoordinateTransformService datasets,
@@ -81,7 +79,8 @@ public class MultiOksPreviewService {
             missingIds.add(inputId(original, "oks_connection_point", id));
             missingFlows.add(oksById.get(id).getFlowTph());
         }
-        VariantSummary result = calculator.calculateVariant("v1", drafts, missingIds, missingFlows);
+        VariantSummary result = calculator.calculateVariant("v1", drafts, missingIds, missingFlows,
+                metric.getRestrictions());
         Map<String, NewSegment> selected = result.getSegments().stream()
                 .collect(Collectors.toMap(NewSegment::getId, Function.identity()));
 
@@ -125,7 +124,8 @@ public class MultiOksPreviewService {
             props.put("laying_method", edge.getLayingMethod());
             props.putNull("depth_start");
             props.putNull("depth_end");
-            props.put("cost", segmentCosts.calculateNewSegmentCost(segment));
+            props.put("cost", specialCosts.calculate(segment, edge.getGeometry(),
+                    metric.getRestrictions()));
             network.set("geometry", lineGeometry((LineString) coordinates.toWgs84(edge.getGeometry())));
             features.add(network);
         }
