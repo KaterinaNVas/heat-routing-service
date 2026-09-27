@@ -99,7 +99,8 @@ public class TerritoryRoutePlanner {
                 double scale = (distance + 0.25) / distance;
                 Point exit = point(start.getX() + (c.x - start.getX()) * scale,
                         start.getY() + (c.y - start.getY()) * scale);
-                if (expanded.covers(exit) || !visible(start, exit, otherBarriers)) continue;
+                if (expanded.covers(exit) || !singleExit(start, exit, ownOks.getGeometry())
+                        || !visible(start, exit, otherBarriers)) continue;
                 if (portals.stream().anyMatch(p -> p.distance(exit) < 1.0)) continue;
                 portals.add(exit);
                 if (portals.size() == 32) break;
@@ -167,7 +168,10 @@ public class TerritoryRoutePlanner {
                 LineString line = factory.createLineString(coordinates.toArray(new Coordinate[0]));
                 line.setSRID(32637);
                 line = shortcutOwnOksExit(line, ownOks, barriers, barrierOwners, diameter);
-                return Optional.of(new Route(line, targets.get(segmentIndex).getId(), vertices.get(u)));
+                LineString construction = constructionOutsideOwnOks(line, ownOks);
+                if (construction == null) continue;
+                return Optional.of(new Route(line, construction,
+                        targets.get(segmentIndex).getId(), vertices.get(u)));
             }
             for (int v = 0; v < count; v++) {
                 if (u == v || settled[v]) continue;
@@ -198,7 +202,8 @@ public class TerritoryRoutePlanner {
         for (int i = 0; i < barriers.size(); i++) {
             if (barrierOwners.get(i) != ownOks) otherBarriers.add(barriers.get(i));
         }
-        if (!visible(first, third, otherBarriers)) return line;
+        if (!singleExit(first, third, ownOks.getGeometry())
+                || !visible(first, third, otherBarriers)) return line;
         Geometry expanded = ownOks.getGeometry().buffer(
                 clearance(RestrictionType.OKS, diameter)
                         + width(diameter) / 2 + BUFFER_MARGIN + PORTAL_MARGIN, 16);
@@ -211,6 +216,62 @@ public class TerritoryRoutePlanner {
         LineString candidate = factory.createLineString(shortened.toArray(new Coordinate[0]));
         candidate.setSRID(32637);
         return angleValidator.validate(candidate).isValid() ? candidate : line;
+    }
+
+    /** The first leg may leave its own footprint once, but may not enter it again. */
+    private boolean singleExit(Point start, Point outside, Geometry ownFootprint) {
+        LineString leg = factory.createLineString(new Coordinate[]{
+                start.getCoordinate(), outside.getCoordinate()});
+        Geometry inside = leg.intersection(ownFootprint);
+        if (inside.isEmpty()) return true;
+        if (inside instanceof Point) {
+            return inside.getCoordinate().distance(start.getCoordinate()) < 0.01;
+        }
+        if (!(inside instanceof LineString)) return false;
+        Coordinate[] coordinates = inside.getCoordinates();
+        return coordinates.length >= 2
+                && (coordinates[0].distance(start.getCoordinate()) < 0.01
+                || coordinates[coordinates.length - 1].distance(start.getCoordinate()) < 0.01);
+    }
+
+    /** Price and export only the pipe outside the building; keep the full route for validation. */
+    private LineString constructionOutsideOwnOks(LineString route, Restriction ownOks) {
+        if (ownOks == null) return route;
+        Coordinate[] coordinates = route.getCoordinates();
+        if (coordinates.length < 2) return null;
+        Point start = point(coordinates[0].x, coordinates[0].y);
+        Point next = point(coordinates[1].x, coordinates[1].y);
+        if (!singleExit(start, next, ownOks.getGeometry())) return null;
+        LineString leg = factory.createLineString(new Coordinate[]{coordinates[0], coordinates[1]});
+        Geometry inside = leg.intersection(ownOks.getGeometry());
+        if (inside.isEmpty()) return route;
+        Coordinate origin = coordinates[0];
+        Coordinate exit = origin;
+        Coordinate delta = new Coordinate(coordinates[1].x - origin.x,
+                coordinates[1].y - origin.y);
+        double squared = delta.x * delta.x + delta.y * delta.y;
+        if (squared < 1e-12) return null;
+        double furthest = 0;
+        for (Coordinate candidate : inside.getCoordinates()) {
+            double fraction = ((candidate.x - origin.x) * delta.x
+                    + (candidate.y - origin.y) * delta.y) / squared;
+            if (fraction > furthest) {
+                furthest = fraction;
+                exit = candidate;
+            }
+        }
+        List<Coordinate> outside = new ArrayList<>();
+        outside.add(exit.copy());
+        for (int i = 1; i < coordinates.length; i++) {
+            if (outside.get(outside.size() - 1).distance(coordinates[i]) > 1e-7) {
+                outside.add(coordinates[i]);
+            }
+        }
+        if (outside.size() < 2) return null;
+        LineString construction = factory.createLineString(outside.toArray(new Coordinate[0]));
+        construction.setSRID(32637);
+        return construction.intersection(ownOks.getGeometry()).getLength() < 0.01
+                ? construction : null;
     }
 
     /** Сокращаем только вершины графа: проверка проходимости использует точные барьеры. */
@@ -280,15 +341,23 @@ public class TerritoryRoutePlanner {
 
     public static final class Route {
         private final LineString geometry;
+        private final LineString constructionGeometry;
         private final String existingSegmentId;
         private final Point connectionPoint;
 
-        private Route(LineString geometry, String existingSegmentId, Point connectionPoint) {
+        private Route(LineString geometry, LineString constructionGeometry,
+                      String existingSegmentId, Point connectionPoint) {
             this.geometry = geometry;
+            this.constructionGeometry = constructionGeometry;
             this.existingSegmentId = existingSegmentId;
             this.connectionPoint = connectionPoint;
         }
+        // Keep the original signature for synthetic routes used by integration tests.
+        private Route(LineString geometry, String existingSegmentId, Point connectionPoint) {
+            this(geometry, geometry, existingSegmentId, connectionPoint);
+        }
         public LineString getGeometry() { return geometry; }
+        public LineString getConstructionGeometry() { return constructionGeometry; }
         public String getExistingSegmentId() { return existingSegmentId; }
         public Point getConnectionPoint() { return connectionPoint; }
     }

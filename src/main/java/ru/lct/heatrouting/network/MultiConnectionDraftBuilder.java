@@ -44,14 +44,17 @@ public class MultiConnectionDraftBuilder {
                 }
                 ConnectionPoint oks = item.getOks();
                 LineString route = item.getRoute().getGeometry();
+                LineString construction = item.getRoute().getConstructionGeometry();
                 Double flow = oks.getFlowTph();
                 if (oks.getId() == null || oks.getGeometry() == null
                         || flow == null || !Double.isFinite(flow) || flow <= 0
                         || route == null || route.getSRID() != 32637
+                        || construction == null || construction.getSRID() != 32637
                         || item.getProvisionalDiameter() <= 0
                         || route.getStartPoint().distance(oks.getGeometry()) > TOLERANCE
+                        || construction.getEndPoint().distance(route.getEndPoint()) > TOLERANCE
                         || route.getEndPoint().distance(root.getPoint()) > TOLERANCE
-                        || route.getLength() <= TOLERANCE) {
+                        || construction.getLength() <= TOLERANCE) {
                     throw new IllegalArgumentException("Некорректный маршрут ОКС " + oks.getId());
                 }
                 RouteValidationResult validation = angleValidator.validate(route);
@@ -62,18 +65,19 @@ public class MultiConnectionDraftBuilder {
                 // Overlapping lines are the same pipe, not two independent construction items.
                 // A junction must be created there before the variant can be priced.
                 for (LineString previous : routes) {
-                    if (previous.intersection(route).getLength() > TOLERANCE) {
+                    if (previous.intersection(construction).getLength() > TOLERANCE) {
                         throw new IllegalArgumentException(
                                 "Маршруты имеют общий участок: требуется узел и одно общее ребро");
                     }
                 }
-                routes.add(route);
-                Node oksNode = new Node("oks:" + oks.getId(), oks.getGeometry(), "oks_connection_point");
+                routes.add(construction);
+                Node oksNode = new Node("oks:" + oks.getId(),
+                        construction.getStartPoint(), "oks_connection_point");
                 if (demands.putIfAbsent(oksNode, flow) != null) {
                     throw new IllegalArgumentException("Повтор ОКС: " + oks.getId());
                 }
                 Edge edge = new Edge("multi_g" + groupNumber + "_e" + routeNumber,
-                        oksNode, root, route, item.getProvisionalDiameter(), 0, "base");
+                        oksNode, root, construction, item.getProvisionalDiameter(), 0, "base");
                 parentEdge.put(oksNode, edge);
             }
             result.add(new Draft(root, parentEdge, demands, tieIn));
