@@ -1,17 +1,28 @@
 package ru.lct.heatrouting.network;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.Point;
+import ru.lct.heatrouting.geo.CoordinateTransformService;
+import ru.lct.heatrouting.geo.DatasetCoordinateTransformService;
+import ru.lct.heatrouting.importdata.DatasetReader;
+import ru.lct.heatrouting.importdata.GeoJsonGeometryReader;
 import ru.lct.heatrouting.model.ConnectionPoint;
 import ru.lct.heatrouting.model.HeatChamber;
 import ru.lct.heatrouting.model.HeatNetworkSegment;
 import ru.lct.heatrouting.model.InputDataset;
 import ru.lct.heatrouting.routing.TerritoryRoutePlanner;
 
+import java.net.URL;
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MultiOksRoutePreparationServiceTest {
@@ -46,5 +57,31 @@ class MultiOksRoutePreparationServiceTest {
             assertTrue(entry.getConnection().isExistingChamber());
             assertTrue(entry.getRoute().getGeometry().getEndPoint().distance(point(100, 0)) < 0.01);
         }
+    }
+
+    @Test
+    void preparesAllOksFromRealDatasetExactlyOnce() throws Exception {
+        URL resource = getClass().getClassLoader().getResource("test-dataset.geojson");
+        assertNotNull(resource);
+        ObjectMapper mapper = new ObjectMapper();
+        InputDataset wgs84 = new DatasetReader(mapper, new GeoJsonGeometryReader())
+                .read(Path.of(resource.toURI()));
+        InputDataset metric = new DatasetCoordinateTransformService(
+                new CoordinateTransformService()).toMetric(wgs84);
+
+        MultiOksRoutePreparationService service = new MultiOksRoutePreparationService(
+                new TerritoryRoutePlanner(), new ConnectionResolver(), new OksConnectionGrouper());
+        MultiOksRoutePreparationService.Preparation result = service.prepare(metric);
+
+        assertTrue(result.getUnconnectedOksIds().isEmpty());
+        Set<String> oksIds = new HashSet<>();
+        for (var group : result.getGroups()) {
+            for (var entry : group) {
+                assertTrue(oksIds.add(entry.getOks().getId()), "ОКС повторяется в группах");
+                assertTrue(entry.getRoute().getGeometry().getEndPoint()
+                        .distance(entry.getConnection().getPoint()) <= 0.01);
+            }
+        }
+        assertEquals(17, oksIds.size());
     }
 }
