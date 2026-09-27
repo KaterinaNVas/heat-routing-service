@@ -2,6 +2,7 @@ package ru.lct.heatrouting.network;
 
 import org.locationtech.jts.geom.Point;
 import org.springframework.stereotype.Service;
+import ru.lct.heatrouting.calculation.SpecialCrossingProcessor;
 import ru.lct.heatrouting.cost.DiameterCatalog;
 import ru.lct.heatrouting.model.ConnectionPoint;
 import ru.lct.heatrouting.model.InputDataset;
@@ -24,6 +25,7 @@ public class MultiOksRoutePreparationService {
     private final ConnectionResolver resolver;
     private final OksConnectionGrouper grouper;
     private final DiameterCatalog diameters = new DiameterCatalog();
+    private final SpecialCrossingProcessor crossings = new SpecialCrossingProcessor();
 
     public MultiOksRoutePreparationService(TerritoryRoutePlanner planner,
                                            ConnectionResolver resolver,
@@ -65,6 +67,12 @@ public class MultiOksRoutePreparationService {
                 }
                 connection = resolver.resolve(metric, route,
                         "v1_chamber_oks_" + oks.getId());
+            }
+            try {
+                crossings.validateAngles(route.getGeometry(), metric.getRestrictions());
+            } catch (IllegalStateException invalidCrossing) {
+                unconnected.add(oks.getId());
+                continue;
             }
             prepared.add(new PreparedConnection(oks, route, connection, diameter));
         }
