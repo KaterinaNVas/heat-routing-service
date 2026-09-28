@@ -77,7 +77,7 @@ public class MultiConnectionDraftBuilder {
                     throw new IllegalArgumentException("Повтор ОКС: " + oks.getId());
                 }
             }
-            buildEdges(groupNumber, valid, routes, root, parentEdge);
+            buildEdges(groupNumber, valid, routes, root, tieIn.isExistingChamber(), parentEdge);
             result.add(new Draft(root, parentEdge, demands, tieIn));
         }
         return List.copyOf(result);
@@ -85,7 +85,8 @@ public class MultiConnectionDraftBuilder {
 
     private void buildEdges(int groupNumber,
                             List<MultiOksRoutePreparationService.PreparedConnection> items,
-                            List<LineString> routes, Node root, Map<Node, Edge> edges) {
+                            List<LineString> routes, Node root, boolean existingRoot,
+                            Map<Node, Edge> edges) {
         // The trie is rooted at the tie-in. Equal route suffixes map to one physical pipe.
         Branch top = new Branch(root.getPoint().getCoordinate());
         List<Branch> leaves = new ArrayList<>();
@@ -114,6 +115,10 @@ public class MultiConnectionDraftBuilder {
             current.oks = items.get(leaves.size());
             leaves.add(current);
         }
+        // Existing tie-ins may already be oversubscribed by legacy input data.
+        // Capacity at those roots needs alternative tie-in selection; reject only
+        // newly designed chambers here so one legacy root cannot abort all OKS.
+        validateCapacity(top, existingRoot);
         int[] nextId = {0};
         for (Branch leaf : leaves) {
             MultiOksRoutePreparationService.PreparedConnection item = leaf.oks;
@@ -159,6 +164,15 @@ public class MultiConnectionDraftBuilder {
                 }
             }
         }
+    }
+
+    private void validateCapacity(Branch node, boolean existingRoot) {
+        int incidentNewPipes = node.children.size() + (node.parent == null ? 0 : 1);
+        if (!(existingRoot && node.parent == null) && incidentNewPipes > 4) {
+            throw new IllegalArgumentException(
+                    "К тепловой камере нельзя подключить больше четырёх участков");
+        }
+        for (Branch child : node.children) validateCapacity(child, false);
     }
 
     /** Insert existing route vertices into every coincident segment before sharing suffixes. */
