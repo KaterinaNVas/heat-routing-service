@@ -19,6 +19,7 @@ import ru.lct.heatrouting.model.ConnectionPoint;
 import ru.lct.heatrouting.model.Edge;
 import ru.lct.heatrouting.model.InputDataset;
 import ru.lct.heatrouting.model.Node;
+import ru.lct.heatrouting.model.Restriction;
 import ru.lct.heatrouting.network.MultiConnectionDraftBuilder;
 import ru.lct.heatrouting.network.MultiOksRoutePreparationService;
 import ru.lct.heatrouting.network.NewSegment;
@@ -97,15 +98,16 @@ public class MultiOksPreviewService {
         return output;
     }
 
-    private Map<String, String> networkSignature(ObjectNode collection) {
-        Map<String, String> signature = new TreeMap<>();
+    private List<String> networkSignature(ObjectNode collection) {
+        List<String> signature = new ArrayList<>();
         for (JsonNode feature : collection.path("features")) {
             JsonNode properties = feature.path("properties");
             if ("heat_network".equals(properties.path("object_type").asText())) {
-                signature.put(properties.path("start_node_id").asText(),
-                        properties.path("end_node_id").toString() + feature.path("geometry"));
+                signature.add(properties.path("laying_method").asText() + ":"
+                        + feature.path("geometry").toString());
             }
         }
+        signature.sort(String::compareTo);
         return signature;
     }
 
@@ -163,27 +165,17 @@ public class MultiOksPreviewService {
         }
         for (NewSegment segment : result.getSegments()) {
             Edge edge = edges.get(segment.getId());
-            ObjectNode network = feature(segment.getId(), "heat_network", variantId);
-            ObjectNode props = (ObjectNode) network.get("properties");
             Node from = edge.getFrom();
             String oksId = from.getId().substring("oks:".length());
-            props.set("start_node_id", inputId(original, "oks_connection_point", oksId));
+            JsonNode startId = inputId(original, "oks_connection_point", oksId);
             MultiConnectionDraftBuilder.Draft tree = drafts.stream()
                     .filter(d -> d.getParentEdge().containsValue(edge)).findFirst()
                     .orElseThrow(() -> new IllegalStateException("Дерево участка не найдено"));
-            props.set("end_node_id", tree.getConnection().isExistingChamber()
+            JsonNode endId = tree.getConnection().isExistingChamber()
                     ? inputId(original, "heat_chamber", tree.getConnection().getChamberId())
-                    : mapper.getNodeFactory().textNode(tree.getConnection().getChamberId()));
-            props.put("flow_tph", result.getFlowsByEdgeId().get(segment.getId()));
-            props.put("diameter", segment.getDiameter());
-            props.put("length", segment.getLength());
-            props.put("laying_method", edge.getLayingMethod());
-            props.putNull("depth_start");
-            props.putNull("depth_end");
-            props.put("cost", specialCosts.calculate(segment, edge.getGeometry(),
-                    metric.getRestrictions()));
-            network.set("geometry", lineGeometry((LineString) coordinates.toWgs84(edge.getGeometry())));
-            features.add(network);
+                    : mapper.getNodeFactory().textNode(tree.getConnection().getChamberId());
+            appendNetworkParts(features, segment, edge, startId, endId,
+                    result.getFlowsByEdgeId().get(segment.getId()), variantId, metric.getRestrictions());
         }
         ObjectNode summary = feature(variantId + "_summary", "variant_summary", variantId);
         ObjectNode props = (ObjectNode) summary.get("properties");
@@ -201,6 +193,41 @@ public class MultiOksPreviewService {
         summary.putNull("geometry");
         features.add(summary);
         return output;
+    }
+
+    /** Exports one priced pipe as separate network features at each special boundary. */
+    void appendNetworkParts(ArrayNode features, NewSegment segment, Edge edge,
+                            JsonNode startId, JsonNode endId, double flow,
+                            String variantId, List<Restriction> restrictions) {
+            List<SpecialCrossingCostCalculator.Part> parts = specialCosts.parts(segment,
+                    edge.getGeometry(), restrictions);
+            if (parts.isEmpty()) throw new IllegalStateException("Пустой участок: " + segment.getId());
+            for (int i = 0; i < parts.size(); i++) {
+                SpecialCrossingCostCalculator.Part part = parts.get(i);
+                String partId = parts.size() == 1 ? segment.getId() : segment.getId() + "_part_" + (i + 1);
+                JsonNode nextId = i == parts.size() - 1 ? endId
+                        : mapper.getNodeFactory().textNode(variantId + "_technical_" + segment.getId() + "_" + (i + 1));
+                ObjectNode network = feature(partId, "heat_network", variantId);
+                ObjectNode props = (ObjectNode) network.get("properties");
+                props.set("start_node_id", startId.deepCopy());
+                props.set("end_node_id", nextId.deepCopy());
+                props.put("flow_tph", flow);
+                props.put("diameter", segment.getDiameter());
+                props.put("length", part.getGeometry().getLength());
+                props.put("laying_method", part.isSpecial() ? "special" : "base");
+                props.putNull("depth_start");
+                props.putNull("depth_end");
+                props.put("cost", part.getCost());
+                network.set("geometry", lineGeometry((LineString) coordinates.toWgs84(part.getGeometry())));
+                features.add(network);
+                if (i < parts.size() - 1) {
+                    ObjectNode node = feature(nextId.asText(), "technical_node", variantId);
+                    node.set("geometry", pointGeometry(coordinates.toWgs84(
+                            part.getGeometry().getEndPoint()).getCoordinate()));
+                    features.add(node);
+                }
+                startId = nextId;
+            }
     }
 
     private JsonNode inputId(JsonNode collection, String type, String id) {
