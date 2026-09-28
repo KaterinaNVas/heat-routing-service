@@ -89,7 +89,8 @@ public class MultiConnectionDraftBuilder {
         // The trie is rooted at the tie-in. Equal route suffixes map to one physical pipe.
         Branch top = new Branch(root.getPoint().getCoordinate());
         List<Branch> leaves = new ArrayList<>();
-        for (LineString route : routes) {
+        List<LineString> nodedRoutes = nodeAtRouteVertices(routes);
+        for (LineString route : nodedRoutes) {
             Branch current = top;
             for (int i = route.getNumPoints() - 2; i >= 0; i--) {
                 Coordinate coordinate = route.getCoordinateN(i);
@@ -158,6 +159,49 @@ public class MultiConnectionDraftBuilder {
                 }
             }
         }
+    }
+
+    /** Insert existing route vertices into every coincident segment before sharing suffixes. */
+    private List<LineString> nodeAtRouteVertices(List<LineString> routes) {
+        List<Coordinate> vertices = new ArrayList<>();
+        for (LineString route : routes) {
+            for (Coordinate vertex : route.getCoordinates()) vertices.add(vertex);
+        }
+        List<LineString> noded = new ArrayList<>();
+        for (LineString route : routes) {
+            List<Coordinate> coordinates = new ArrayList<>();
+            coordinates.add(route.getCoordinateN(0));
+            for (int i = 1; i < route.getNumPoints(); i++) {
+                Coordinate start = route.getCoordinateN(i - 1);
+                Coordinate end = route.getCoordinateN(i);
+                double length = start.distance(end);
+                if (length <= TOLERANCE) {
+                    throw new IllegalArgumentException("Нулевое звено маршрута");
+                }
+                List<Coordinate> interior = new ArrayList<>();
+                for (Coordinate vertex : vertices) {
+                    double factor = ((vertex.x - start.x) * (end.x - start.x)
+                            + (vertex.y - start.y) * (end.y - start.y)) / (length * length);
+                    if (factor <= TOLERANCE / length || factor >= 1 - TOLERANCE / length) continue;
+                    Coordinate projected = new Coordinate(start.x + factor * (end.x - start.x),
+                            start.y + factor * (end.y - start.y));
+                    if (projected.distance(vertex) <= TOLERANCE) interior.add(projected);
+                }
+                interior.sort((a, b) -> Double.compare(start.distance(a), start.distance(b)));
+                for (Coordinate vertex : interior) {
+                    if (coordinates.get(coordinates.size() - 1).distance(vertex) > TOLERANCE) {
+                        coordinates.add(vertex);
+                    }
+                }
+                if (coordinates.get(coordinates.size() - 1).distance(end) > TOLERANCE) {
+                    coordinates.add(end);
+                }
+            }
+            LineString line = geometryFactory.createLineString(coordinates.toArray(new Coordinate[0]));
+            line.setSRID(32637);
+            noded.add(line);
+        }
+        return noded;
     }
 
     private static final class Branch {
