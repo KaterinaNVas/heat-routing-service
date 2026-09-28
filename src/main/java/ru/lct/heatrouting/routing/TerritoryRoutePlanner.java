@@ -32,7 +32,15 @@ public class TerritoryRoutePlanner {
     private final RouteAngleValidator angleValidator = new RouteAngleValidator();
 
     public Optional<Route> find(InputDataset metricDataset, ConnectionPoint oks, int diameter) {
-        return findInternal(metricDataset, oks, diameter, null, null);
+        List<Route> routes = findInternal(metricDataset, oks, diameter, null, null, 1);
+        return routes.isEmpty() ? Optional.empty() : Optional.of(routes.get(0));
+    }
+
+    /** Shortest feasible routes to distinct existing network segments. */
+    public List<Route> findAlternatives(InputDataset metricDataset, ConnectionPoint oks,
+                                        int diameter, int limit) {
+        if (limit < 1) throw new IllegalArgumentException("Число вариантов должно быть положительным");
+        return List.copyOf(findInternal(metricDataset, oks, diameter, null, null, limit));
     }
 
     /** Перестраивает путь к выбранной существующей камере на указанном участке. */
@@ -41,17 +49,19 @@ public class TerritoryRoutePlanner {
         if (chamber == null || existingSegmentId == null || chamber.getSRID() != 32637) {
             throw new IllegalArgumentException("Камера и существующий участок обязательны");
         }
-        return findInternal(metricDataset, oks, diameter, chamber, existingSegmentId);
+        List<Route> routes = findInternal(metricDataset, oks, diameter, chamber, existingSegmentId, 1);
+        return routes.isEmpty() ? Optional.empty() : Optional.of(routes.get(0));
     }
 
-    private Optional<Route> findInternal(InputDataset metricDataset, ConnectionPoint oks,
-                                         int diameter, Point forcedTarget, String forcedSegmentId) {
+    private List<Route> findInternal(InputDataset metricDataset, ConnectionPoint oks,
+                                     int diameter, Point forcedTarget,
+                                     String forcedSegmentId, int limit) {
         if (metricDataset == null || oks == null || oks.getGeometry() == null ||
                 oks.getGeometry().getSRID() != 32637) {
             throw new IllegalArgumentException("Ожидается входной набор в EPSG:32637");
         }
         if (diameter <= 0) throw new IllegalArgumentException("ДУ должен быть положительным");
-        if (metricDataset.getHeatNetwork().isEmpty()) return Optional.empty();
+        if (metricDataset.getHeatNetwork().isEmpty()) return List.of();
         Point oksPoint = oks.getGeometry();
         double nearestNetwork = metricDataset.getHeatNetwork().stream()
                 .mapToDouble(s -> s.getGeometry().distance(oksPoint))
@@ -105,7 +115,7 @@ public class TerritoryRoutePlanner {
                 portals.add(exit);
                 if (portals.size() == 32) break;
             }
-            if (portals.isEmpty()) return Optional.empty();
+            if (portals.isEmpty()) return List.of();
         }
         for (int vertexBudget : VERTEX_BUDGETS) {
         List<Point> vertices = routeVertices(start, barriers, vertexBudget);
@@ -139,7 +149,7 @@ public class TerritoryRoutePlanner {
                 vertices.add(point(candidate.x, candidate.y));
             }
         }
-        if (targetIndices.isEmpty()) return Optional.empty();
+        if (targetIndices.isEmpty()) return List.of();
         int count = vertices.size();
         double[] distances = new double[count];
         int[] previous = new int[count];
@@ -154,6 +164,8 @@ public class TerritoryRoutePlanner {
             }
         }
         PriorityQueue<SearchStep> open = new PriorityQueue<>(Comparator.comparingDouble(s -> s.estimate));
+        List<Route> alternatives = new ArrayList<>();
+        java.util.Set<String> selectedSegments = new java.util.HashSet<>();
         distances[0] = 0;
         open.add(new SearchStep(0, heuristic[0]));
         while (!open.isEmpty()) {
@@ -169,9 +181,13 @@ public class TerritoryRoutePlanner {
                 line.setSRID(32637);
                 line = shortcutOwnOksExit(line, ownOks, barriers, barrierOwners, diameter);
                 LineString construction = constructionOutsideOwnOks(line, ownOks);
-                if (construction == null) continue;
-                return Optional.of(new Route(line, construction,
-                        targets.get(segmentIndex).getId(), vertices.get(u)));
+                if (construction != null) {
+                    String segmentId = targets.get(segmentIndex).getId();
+                    if (selectedSegments.add(segmentId)) {
+                        alternatives.add(new Route(line, construction, segmentId, vertices.get(u)));
+                        if (alternatives.size() == limit) return alternatives;
+                    }
+                }
             }
             for (int v = 0; v < count; v++) {
                 if (u == v || settled[v]) continue;
@@ -186,8 +202,9 @@ public class TerritoryRoutePlanner {
                 }
             }
         }
+        if (!alternatives.isEmpty()) return alternatives;
         }
-        return Optional.empty();
+        return List.of();
     }
 
     private LineString shortcutOwnOksExit(LineString line, Restriction ownOks,

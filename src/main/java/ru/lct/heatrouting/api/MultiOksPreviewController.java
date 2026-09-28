@@ -26,13 +26,23 @@ public class MultiOksPreviewController {
     @PostMapping(value = "/api/v1/route/preview-all", consumes = "multipart/form-data",
             produces = "application/geo+json")
     public ObjectNode preview(@RequestParam("file") MultipartFile file) throws IOException {
+        return calculate(file, false);
+    }
+
+    @PostMapping(value = "/api/v1/route/preview-variants", consumes = "multipart/form-data",
+            produces = "application/geo+json")
+    public ObjectNode previewVariants(@RequestParam("file") MultipartFile file) throws IOException {
+        return calculate(file, true);
+    }
+
+    private ObjectNode calculate(MultipartFile file, boolean variants) throws IOException {
         if (file.isEmpty()) throw new IllegalArgumentException("Файл GeoJSON пуст");
         Path temporary = Files.createTempFile("heat-preview-all-", ".geojson");
         try {
             try (java.io.InputStream input = file.getInputStream()) {
                 Files.copy(input, temporary, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             }
-            return service.calculate(temporary);
+            return variants ? service.calculateVariants(temporary) : service.calculate(temporary);
         } finally {
             Files.deleteIfExists(temporary);
         }

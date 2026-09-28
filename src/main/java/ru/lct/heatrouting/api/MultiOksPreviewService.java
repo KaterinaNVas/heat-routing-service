@@ -26,11 +26,13 @@ import ru.lct.heatrouting.network.NewSegment;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -65,9 +67,63 @@ public class MultiOksPreviewService {
     }
 
     public ObjectNode calculate(Path geoJson) throws IOException {
+        return calculate(geoJson, MultiOksRoutePreparationService.RoutePreference.SHORTEST, "v1");
+    }
+
+    /** Returns distinct route choices in one GeoJSON FeatureCollection. */
+    public ObjectNode calculateVariants(Path geoJson) throws IOException {
+        ObjectNode shortest = calculate(geoJson,
+                MultiOksRoutePreparationService.RoutePreference.SHORTEST, "v1");
+        ObjectNode economical = calculate(geoJson,
+                MultiOksRoutePreparationService.RoutePreference.LOWEST_STANDALONE_COST, "v2");
+        List<ObjectNode> variants = new ArrayList<>();
+        variants.add(shortest);
+        if (!networkSignature(shortest).equals(networkSignature(economical))) {
+            variants.add(economical);
+        }
+        variants.sort(Comparator.comparingDouble(collection ->
+                summaryProperties(collection).path("score").asDouble()));
+        ObjectNode output = mapper.createObjectNode();
+        output.put("type", "FeatureCollection");
+        ArrayNode features = output.putArray("features");
+        int rank = 0;
+        for (ObjectNode variant : variants) {
+            ObjectNode summary = summaryProperties(variant);
+            summary.put("rank", ++rank);
+            summary.put("route_strategy", "v1".equals(summary.path("variant_id").asText())
+                    ? "SHORTEST" : "LOWEST_STANDALONE_COST");
+            for (JsonNode feature : variant.path("features")) features.add(feature);
+        }
+        return output;
+    }
+
+    private Map<String, String> networkSignature(ObjectNode collection) {
+        Map<String, String> signature = new TreeMap<>();
+        for (JsonNode feature : collection.path("features")) {
+            JsonNode properties = feature.path("properties");
+            if ("heat_network".equals(properties.path("object_type").asText())) {
+                signature.put(properties.path("start_node_id").asText(),
+                        properties.path("end_node_id").toString() + feature.path("geometry"));
+            }
+        }
+        return signature;
+    }
+
+    private ObjectNode summaryProperties(ObjectNode collection) {
+        for (JsonNode feature : collection.path("features")) {
+            if ("variant_summary".equals(feature.path("properties").path("object_type").asText())) {
+                return (ObjectNode) feature.path("properties");
+            }
+        }
+        throw new IllegalStateException("Итог варианта не найден");
+    }
+
+    private ObjectNode calculate(Path geoJson,
+                                 MultiOksRoutePreparationService.RoutePreference preference,
+                                 String variantId) throws IOException {
         InputDataset metric = datasets.toMetric(reader.read(geoJson));
         JsonNode original = mapper.readTree(geoJson.toFile());
-        MultiOksRoutePreparationService.Preparation prepared = preparation.prepare(metric);
+        MultiOksRoutePreparationService.Preparation prepared = preparation.prepare(metric, preference);
         List<MultiConnectionDraftBuilder.Draft> drafts = builder.build(prepared);
         if (drafts.isEmpty()) throw new IllegalArgumentException("Не удалось подключить ни один ОКС");
 
@@ -79,7 +135,7 @@ public class MultiOksPreviewService {
             missingIds.add(inputId(original, "oks_connection_point", id));
             missingFlows.add(oksById.get(id).getFlowTph());
         }
-        VariantSummary result = calculator.calculateVariant("v1", drafts, missingIds, missingFlows,
+        VariantSummary result = calculator.calculateVariant(variantId, drafts, missingIds, missingFlows,
                 metric.getRestrictions());
         Map<String, NewSegment> selected = result.getSegments().stream()
                 .collect(Collectors.toMap(NewSegment::getId, Function.identity()));
@@ -93,7 +149,7 @@ public class MultiOksPreviewService {
             for (Edge edge : draft.getParentEdge().values()) edges.put(edge.getId(), edge);
             if (!draft.getConnection().isExistingChamber()
                     && chambersWritten.add(draft.getConnection().getChamberId())) {
-                ObjectNode chamber = feature(draft.getConnection().getChamberId(), "heat_chamber");
+                ObjectNode chamber = feature(draft.getConnection().getChamberId(), "heat_chamber", variantId);
                 ObjectNode props = (ObjectNode) chamber.get("properties");
                 int diameter = draft.getParentEdge().values().stream()
                         .map(Edge::getId).map(selected::get).filter(s -> s != null)
@@ -107,7 +163,7 @@ public class MultiOksPreviewService {
         }
         for (NewSegment segment : result.getSegments()) {
             Edge edge = edges.get(segment.getId());
-            ObjectNode network = feature(segment.getId(), "heat_network");
+            ObjectNode network = feature(segment.getId(), "heat_network", variantId);
             ObjectNode props = (ObjectNode) network.get("properties");
             Node from = edge.getFrom();
             String oksId = from.getId().substring("oks:".length());
@@ -129,7 +185,7 @@ public class MultiOksPreviewService {
             network.set("geometry", lineGeometry((LineString) coordinates.toWgs84(edge.getGeometry())));
             features.add(network);
         }
-        ObjectNode summary = feature("v1_summary", "variant_summary");
+        ObjectNode summary = feature(variantId + "_summary", "variant_summary", variantId);
         ObjectNode props = (ObjectNode) summary.get("properties");
         props.put("rank", result.getRank());
         props.put("construction_cost", result.getConstructionCost());
@@ -160,13 +216,13 @@ public class MultiOksPreviewService {
         return found.deepCopy();
     }
 
-    private ObjectNode feature(String id, String type) {
+    private ObjectNode feature(String id, String type, String variantId) {
         ObjectNode feature = mapper.createObjectNode();
         feature.put("type", "Feature");
         ObjectNode props = feature.putObject("properties");
         props.put("id", id);
         props.put("object_type", type);
-        props.put("variant_id", "v1");
+        props.put("variant_id", variantId);
         return feature;
     }
 

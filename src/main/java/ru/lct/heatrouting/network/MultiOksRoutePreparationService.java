@@ -2,13 +2,17 @@ package ru.lct.heatrouting.network;
 
 import org.locationtech.jts.geom.Point;
 import org.springframework.stereotype.Service;
+import ru.lct.heatrouting.geo.RouteAngleValidator;
+import ru.lct.heatrouting.calculation.SpecialCrossingCostCalculator;
 import ru.lct.heatrouting.calculation.SpecialCrossingProcessor;
+import ru.lct.heatrouting.calculation.VariantCalculator;
 import ru.lct.heatrouting.cost.DiameterCatalog;
 import ru.lct.heatrouting.model.ConnectionPoint;
 import ru.lct.heatrouting.model.InputDataset;
 import ru.lct.heatrouting.routing.TerritoryRoutePlanner;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -26,6 +30,11 @@ public class MultiOksRoutePreparationService {
     private final OksConnectionGrouper grouper;
     private final DiameterCatalog diameters = new DiameterCatalog();
     private final SpecialCrossingProcessor crossings = new SpecialCrossingProcessor();
+    private final RouteAngleValidator angles = new RouteAngleValidator();
+    private final SpecialCrossingCostCalculator crossingCosts = new SpecialCrossingCostCalculator();
+    private final VariantCalculator variantCosts = new VariantCalculator(0.3, 0.7);
+
+    public enum RoutePreference { SHORTEST, LOWEST_STANDALONE_COST }
 
     public MultiOksRoutePreparationService(TerritoryRoutePlanner planner,
                                            ConnectionResolver resolver,
@@ -36,7 +45,12 @@ public class MultiOksRoutePreparationService {
     }
 
     public Preparation prepare(InputDataset metric) {
+        return prepare(metric, RoutePreference.SHORTEST);
+    }
+
+    public Preparation prepare(InputDataset metric, RoutePreference preference) {
         Objects.requireNonNull(metric, "metric");
+        Objects.requireNonNull(preference, "preference");
         List<PreparedConnection> prepared = new ArrayList<>();
         List<String> unconnected = new ArrayList<>();
         Set<String> ids = new HashSet<>();
@@ -47,34 +61,22 @@ public class MultiOksRoutePreparationService {
                 throw new IllegalArgumentException("Повтор id ОКС или неверный расход");
             }
             int diameter = diameters.findMinimalDiameter(oks.getFlowTph());
-            TerritoryRoutePlanner.Route route = planner.find(metric, oks, diameter).orElse(null);
-            if (route == null) {
+            List<TerritoryRoutePlanner.Route> candidates = preference == RoutePreference.SHORTEST
+                    ? planner.find(metric, oks, diameter).map(List::of).orElseGet(List::of)
+                    : planner.findAlternatives(metric, oks, diameter, 3);
+            List<PreparedConnection> valid = new ArrayList<>();
+            for (TerritoryRoutePlanner.Route candidate : candidates) {
+                PreparedConnection selected = prepareCandidate(metric, oks, diameter, candidate);
+                if (selected != null) valid.add(selected);
+            }
+            if (valid.isEmpty()) {
                 unconnected.add(oks.getId());
                 continue;
             }
-            // New chamber IDs are temporary but must not collide between separate tie-ins.
-            ConnectionResolver.Connection connection = resolver.resolve(metric, route,
-                    "v1_chamber_oks_" + oks.getId());
-            if (connection.isExistingChamber()
-                    && route.getGeometry().getEndPoint().distance(connection.getPoint())
-                    > ENDPOINT_TOLERANCE_METERS) {
-                Point chamber = connection.getPoint();
-                route = planner.findTo(metric, oks, diameter, chamber,
-                        connection.getExistingSegmentId()).orElse(null);
-                if (route == null) {
-                    unconnected.add(oks.getId());
-                    continue;
-                }
-                connection = resolver.resolve(metric, route,
-                        "v1_chamber_oks_" + oks.getId());
-            }
-            try {
-                crossings.validateAngles(route.getGeometry(), metric.getRestrictions());
-            } catch (IllegalStateException invalidCrossing) {
-                unconnected.add(oks.getId());
-                continue;
-            }
-            prepared.add(new PreparedConnection(oks, route, connection, diameter));
+            PreparedConnection best = preference == RoutePreference.SHORTEST ? valid.get(0)
+                    : valid.stream().min(Comparator.comparingDouble(entry ->
+                            standaloneCost(entry, metric))).orElseThrow();
+            prepared.add(best);
         }
 
         List<OksConnectionGrouper.Candidate> candidates = new ArrayList<>();
@@ -93,6 +95,45 @@ public class MultiOksRoutePreparationService {
             groups.add(List.copyOf(group));
         }
         return new Preparation(groups, unconnected);
+    }
+
+    private PreparedConnection prepareCandidate(InputDataset metric, ConnectionPoint oks,
+                                                 int diameter, TerritoryRoutePlanner.Route route) {
+        // New chamber IDs are temporary but must not collide between separate tie-ins.
+        ConnectionResolver.Connection connection = resolver.resolve(metric, route,
+                "v1_chamber_oks_" + oks.getId());
+        if (connection.isExistingChamber()
+                && route.getGeometry().getEndPoint().distance(connection.getPoint())
+                > ENDPOINT_TOLERANCE_METERS) {
+            Point chamber = connection.getPoint();
+            String segmentId = connection.getExistingSegmentId();
+            boolean chamberOnSelectedSegment = metric.getHeatNetwork().stream()
+                    .filter(segment -> segment.getId().equals(segmentId))
+                    .anyMatch(segment -> segment.getGeometry().distance(chamber)
+                            <= ENDPOINT_TOLERANCE_METERS);
+            if (!chamberOnSelectedSegment) return null;
+            route = planner.findTo(metric, oks, diameter, chamber,
+                    segmentId).orElse(null);
+            if (route == null) return null;
+            connection = resolver.resolve(metric, route,
+                    "v1_chamber_oks_" + oks.getId());
+        }
+        try {
+            crossings.validateAngles(route.getGeometry(), metric.getRestrictions());
+        } catch (IllegalStateException invalidCrossing) {
+            return null;
+        }
+        if (!angles.validate(route.getGeometry()).isValid()) return null;
+        return new PreparedConnection(oks, route, connection, diameter);
+    }
+
+    private double standaloneCost(PreparedConnection entry, InputDataset metric) {
+        double length = entry.route.getConstructionGeometry().getLength();
+        double pipes = crossingCosts.calculate(new NewSegment("candidate", entry.provisionalDiameter,
+                length), entry.route.getConstructionGeometry(), metric.getRestrictions());
+        double chamber = entry.connection.isExistingChamber() ? 5_000_000
+                : variantCosts.chamberCost(entry.provisionalDiameter);
+        return pipes + chamber;
     }
 
     public static final class PreparedConnection {
