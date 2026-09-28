@@ -79,6 +79,8 @@ public class MultiOksRoutePreparationService {
             prepared.add(best);
         }
 
+        redistributeOverloadedChambers(metric, prepared, unconnected);
+
         List<OksConnectionGrouper.Candidate> candidates = new ArrayList<>();
         Map<String, PreparedConnection> byOksId = new HashMap<>();
         for (PreparedConnection entry : prepared) {
@@ -95,6 +97,104 @@ public class MultiOksRoutePreparationService {
             groups.add(List.copyOf(group));
         }
         return new Preparation(groups, unconnected);
+    }
+
+    private void redistributeOverloadedChambers(InputDataset metric,
+                                                 List<PreparedConnection> prepared,
+                                                 List<String> unconnected) {
+        Map<String, Integer> assigned = new HashMap<>();
+        for (PreparedConnection item : prepared) {
+            if (item.connection.isExistingChamber()) {
+                assigned.merge(item.connection.getChamberId(), 1, Integer::sum);
+            }
+        }
+        Map<String, PreparedConnection> alternatives = new HashMap<>();
+        for (;;) {
+            PreparedConnection bestOriginal = null;
+            PreparedConnection bestAlternative = null;
+            double bestExtraCost = Double.POSITIVE_INFINITY;
+            for (PreparedConnection original : prepared) {
+                if (!original.connection.isExistingChamber()) continue;
+                String sourceId = original.connection.getChamberId();
+                if (assigned.getOrDefault(sourceId, 0)
+                        <= availableNewPipes(metric, sourceId)) continue;
+                List<ru.lct.heatrouting.model.HeatChamber> chambers = new ArrayList<>(metric.getHeatChambers());
+                chambers.sort(Comparator.comparingDouble(chamber ->
+                        chamber.getGeometry().distance(original.oks.getGeometry())));
+                int considered = 0;
+                for (ru.lct.heatrouting.model.HeatChamber chamber : chambers) {
+                    String destinationId = chamber.getId();
+                    if (sourceId.equals(destinationId) || assigned.getOrDefault(destinationId, 0)
+                            >= availableNewPipes(metric, destinationId)) continue;
+                    if (++considered > 5) break;
+                    String key = original.oks.getId() + "@" + destinationId;
+                    PreparedConnection candidate;
+                    if (alternatives.containsKey(key)) {
+                        candidate = alternatives.get(key);
+                    } else {
+                        candidate = alternativeTo(metric, original, chamber);
+                        alternatives.put(key, candidate);
+                    }
+                    if (candidate == null) continue;
+                    double extra = standaloneCost(candidate, metric) - standaloneCost(original, metric);
+                    if (extra < bestExtraCost) {
+                        bestExtraCost = extra;
+                        bestOriginal = original;
+                        bestAlternative = candidate;
+                    }
+                }
+            }
+            if (bestOriginal == null) {
+                PreparedConnection overflow = prepared.stream()
+                        .filter(item -> item.connection.isExistingChamber()
+                                && assigned.getOrDefault(item.connection.getChamberId(), 0)
+                                > availableNewPipes(metric, item.connection.getChamberId()))
+                        .findFirst().orElse(null);
+                if (overflow == null) return;
+                // No admissible chamber is available: leave the OKS disconnected and
+                // let the normal variant calculation apply its specified penalty.
+                prepared.remove(overflow);
+                unconnected.add(overflow.oks.getId());
+                assigned.merge(overflow.connection.getChamberId(), -1, Integer::sum);
+                continue;
+            }
+            int index = prepared.indexOf(bestOriginal);
+            prepared.set(index, bestAlternative);
+            assigned.merge(bestOriginal.connection.getChamberId(), -1, Integer::sum);
+            assigned.merge(bestAlternative.connection.getChamberId(), 1, Integer::sum);
+        }
+    }
+
+    private PreparedConnection alternativeTo(InputDataset metric, PreparedConnection original,
+                                              ru.lct.heatrouting.model.HeatChamber chamber) {
+        for (ru.lct.heatrouting.model.HeatNetworkSegment segment : metric.getHeatNetwork()) {
+            if (segment.getGeometry().distance(chamber.getGeometry()) > ENDPOINT_TOLERANCE_METERS)
+                continue;
+            TerritoryRoutePlanner.Route route = planner.findTo(metric, original.oks,
+                    original.provisionalDiameter, chamber.getGeometry(), segment.getId()).orElse(null);
+            if (route == null) continue;
+            PreparedConnection candidate = prepareCandidate(metric, original.oks,
+                    original.provisionalDiameter, route);
+            if (candidate != null && candidate.connection.isExistingChamber()
+                    && chamber.getId().equals(candidate.connection.getChamberId())) return candidate;
+        }
+        return null;
+    }
+
+    private int availableNewPipes(InputDataset metric, String chamberId) {
+        ru.lct.heatrouting.model.HeatChamber chamber = metric.getHeatChambers().stream()
+                .filter(item -> chamberId.equals(item.getId())).findFirst().orElse(null);
+        if (chamber == null) return 0;
+        int existing = 0;
+        for (ru.lct.heatrouting.model.HeatNetworkSegment segment : metric.getHeatNetwork()) {
+            if (segment.getGeometry().distance(chamber.getGeometry()) > ENDPOINT_TOLERANCE_METERS)
+                continue;
+            boolean end = segment.getGeometry().getStartPoint().distance(chamber.getGeometry())
+                    <= ENDPOINT_TOLERANCE_METERS || segment.getGeometry().getEndPoint()
+                    .distance(chamber.getGeometry()) <= ENDPOINT_TOLERANCE_METERS;
+            existing += end ? 1 : 2;
+        }
+        return Math.max(0, 4 - existing);
     }
 
     private PreparedConnection prepareCandidate(InputDataset metric, ConnectionPoint oks,

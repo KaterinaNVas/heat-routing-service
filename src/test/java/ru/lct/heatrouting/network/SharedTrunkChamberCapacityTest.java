@@ -14,14 +14,13 @@ import ru.lct.heatrouting.routing.TerritoryRoutePlanner;
 import java.lang.reflect.Constructor;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class SharedTrunkChamberCapacityTest {
     private final GeometryFactory geometry = new GeometryFactory();
 
     @Test
-    void rejectsJunctionWithFiveIncidentNewPipes() {
+    void marksExcessConnectionsUnconnectedWhenNoOtherChamberExists() {
         InputDataset dataset = new InputDataset();
         dataset.getHeatNetwork().add(new HeatNetworkSegment("existing", 100, null, null,
                 line(new Coordinate(10, -1), new Coordinate(10, 1))));
@@ -48,9 +47,9 @@ class SharedTrunkChamberCapacityTest {
         MultiOksRoutePreparationService.Preparation prepared =
                 new MultiOksRoutePreparationService(planner, new ConnectionResolver(),
                         new OksConnectionGrouper()).prepare(dataset);
-        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> new MultiConnectionDraftBuilder().build(prepared));
-        assertTrue(error.getMessage().contains("четыр"));
+        assertEquals(2, prepared.getUnconnectedOksIds().size());
+        assertEquals(2, prepared.getGroups().get(0).size());
+        new MultiConnectionDraftBuilder().build(prepared);
     }
 
     private Point point(double x, double y) {
