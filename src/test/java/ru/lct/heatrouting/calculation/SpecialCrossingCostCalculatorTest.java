@@ -14,6 +14,8 @@ import ru.lct.heatrouting.network.NewSegment;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class SpecialCrossingCostCalculatorTest {
     private final GeometryFactory factory = new GeometryFactory();
@@ -89,5 +91,22 @@ class SpecialCrossingCostCalculatorTest {
         assertEquals(unit * (16 + 4 * 1.25), calculator.calculate(
                 new NewSegment("gas", 100, 20), longRoute,
                 List.of(new Restriction("gas", RestrictionType.GAS_PIPELINE, null, gas))), 0.01);
+    }
+
+    @Test
+    void rejectsBendInsideExtendedRoadPass() {
+        LineString bent = factory.createLineString(new Coordinate[]{
+                new Coordinate(0, 0), new Coordinate(8, 0),
+                new Coordinate(9, 0.5), new Coordinate(20, 0)});
+        assertThrows(IllegalStateException.class, () -> calculator.validateStraightSpecialPasses(
+                bent, List.of(strip("road", RestrictionType.ROAD, 6, 10))));
+    }
+
+    @Test
+    void allowsBendBeforeExtendedRoadPass() {
+        LineString bentBefore = factory.createLineString(new Coordinate[]{
+                new Coordinate(0, 0), new Coordinate(2, 1), new Coordinate(20, 0)});
+        assertDoesNotThrow(() -> calculator.validateStraightSpecialPasses(
+                bentBefore, List.of(strip("road", RestrictionType.ROAD, 6, 10))));
     }
 }

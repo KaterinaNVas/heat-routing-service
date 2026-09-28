@@ -120,6 +120,7 @@ public class MultiOksRoutePreparationService {
         }
         try {
             crossings.validateAngles(route.getGeometry(), metric.getRestrictions());
+            crossingCosts.validateStraightSpecialPasses(route.getGeometry(), metric.getRestrictions());
         } catch (IllegalStateException invalidCrossing) {
             return null;
         }

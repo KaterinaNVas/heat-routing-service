@@ -26,6 +26,34 @@ public class SpecialCrossingCostCalculator {
         return parts(segment, route, restrictions).stream().mapToDouble(Part::getCost).sum();
     }
 
+    /** A special pass must follow one straight line, including its margins outside an obstacle. */
+    public void validateStraightSpecialPasses(LineString route, List<Restriction> restrictions) {
+        if (route == null) throw new IllegalArgumentException("Маршрут не задан");
+        NewSegment segment = new NewSegment("validation", 100, route.getLength());
+        Coordinate first = null;
+        Coordinate last = null;
+        double runLength = 0;
+        for (Part part : parts(segment, route, restrictions)) {
+            if (part.isSpecial()) {
+                LineString line = part.getGeometry();
+                if (first == null) first = line.getStartPoint().getCoordinate();
+                last = line.getEndPoint().getCoordinate();
+                runLength += line.getLength();
+            } else {
+                requireStraight(first, last, runLength);
+                first = null;
+                last = null;
+                runLength = 0;
+            }
+        }
+        requireStraight(first, last, runLength);
+    }
+
+    private void requireStraight(Coordinate first, Coordinate last, double length) {
+        if (first != null && length - first.distance(last) > 0.01)
+            throw new IllegalStateException("Специальный проход должен быть прямым");
+    }
+
     /** Physical pieces separated at every change of laying method or special coefficient. */
     public List<Part> parts(NewSegment segment, LineString route, List<Restriction> restrictions) {
         if (segment == null || route == null || restrictions == null
