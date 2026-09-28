@@ -162,18 +162,36 @@ public class MultiOksPreviewService {
                         coordinates.toWgs84(draft.getConnection().getPoint()).getCoordinate()));
                 features.add(chamber);
             }
+            for (Edge edge : draft.getParentEdge().values()) {
+                Node node = edge.getTo();
+                if (node.equals(draft.getRoot()) || !chambersWritten.add(node.getId())) continue;
+                ObjectNode chamber = feature(node.getId(), "heat_chamber", variantId);
+                int diameter = draft.getParentEdge().values().stream()
+                        .filter(incident -> incident.getFrom().equals(node)
+                                || incident.getTo().equals(node))
+                        .map(Edge::getId).map(selected::get).filter(s -> s != null)
+                        .mapToInt(NewSegment::getDiameter).max().orElse(0);
+                ObjectNode chamberProps = (ObjectNode) chamber.get("properties");
+                chamberProps.put("diameter", diameter);
+                chamberProps.put("cost", variantCosts.chamberCost(diameter));
+                chamber.set("geometry", pointGeometry(
+                        coordinates.toWgs84(node.getPoint()).getCoordinate()));
+                features.add(chamber);
+            }
         }
         for (NewSegment segment : result.getSegments()) {
             Edge edge = edges.get(segment.getId());
             Node from = edge.getFrom();
-            String oksId = from.getId().substring("oks:".length());
-            JsonNode startId = inputId(original, "oks_connection_point", oksId);
+            JsonNode startId = "oks_connection_point".equals(from.getObjectType())
+                    ? inputId(original, "oks_connection_point", from.getId().substring("oks:".length()))
+                    : mapper.getNodeFactory().textNode(from.getId());
             MultiConnectionDraftBuilder.Draft tree = drafts.stream()
                     .filter(d -> d.getParentEdge().containsValue(edge)).findFirst()
                     .orElseThrow(() -> new IllegalStateException("Дерево участка не найдено"));
-            JsonNode endId = tree.getConnection().isExistingChamber()
+            Node to = edge.getTo();
+            JsonNode endId = to.equals(tree.getRoot()) && tree.getConnection().isExistingChamber()
                     ? inputId(original, "heat_chamber", tree.getConnection().getChamberId())
-                    : mapper.getNodeFactory().textNode(tree.getConnection().getChamberId());
+                    : mapper.getNodeFactory().textNode(to.getId());
             appendNetworkParts(features, segment, edge, startId, endId,
                     result.getFlowsByEdgeId().get(segment.getId()), variantId, metric.getRestrictions());
         }

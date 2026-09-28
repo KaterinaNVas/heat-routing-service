@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 import ru.lct.heatrouting.cost.DiameterCatalog;
 import ru.lct.heatrouting.cost.SegmentCostCalculator;
 import ru.lct.heatrouting.model.Edge;
+import ru.lct.heatrouting.model.Node;
 import ru.lct.heatrouting.model.Restriction;
 import ru.lct.heatrouting.network.MultiConnectionDraftBuilder;
 import ru.lct.heatrouting.network.NewSegment;
@@ -80,6 +81,24 @@ public class MultiTreeVariantCalculator {
             constructionCost += tree.getConstructionCost();
             Map<String, Edge> edges = new HashMap<>();
             for (Edge edge : draft.getParentEdge().values()) edges.put(edge.getId(), edge);
+            Map<Node, Integer> incoming = new HashMap<>();
+            Map<Node, Integer> incidentDn = new HashMap<>();
+            for (NewSegment segment : tree.getSegments()) {
+                Edge edge = edges.get(segment.getId());
+                incoming.merge(edge.getTo(), 1, Integer::sum);
+                incidentDn.merge(edge.getFrom(), segment.getDiameter(), Math::max);
+                incidentDn.merge(edge.getTo(), segment.getDiameter(), Math::max);
+            }
+            for (Map.Entry<Node, Integer> count : incoming.entrySet()) {
+                Node node = count.getKey();
+                if (node.equals(draft.getRoot()) || count.getValue() < 2) continue;
+                if (!"heat_chamber".equals(node.getObjectType())) {
+                    throw new IllegalStateException("Разветвление не в камере: " + node.getId());
+                }
+                double price = costs.chamberCost(incidentDn.get(node));
+                chamberCost += price;
+                constructionCost += price;
+            }
             for (NewSegment segment : tree.getSegments()) {
                 Edge edge = edges.get(segment.getId());
                 constructionCost += crossings.calculate(segment, edge.getGeometry(), restrictions)
