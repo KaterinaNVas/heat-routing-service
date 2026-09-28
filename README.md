@@ -1,36 +1,43 @@
 # Heat Routing Service
 
-Prototype for the LCT 2026 case: heat network routing for new connections.
+Сервис моделирует подключение новых зданий (ОКС) к существующей тепловой сети по входному GeoJSON и возвращает проектируемые трассы и сводку расчёта в GeoJSON. Реализация подготовлена для кейса ЛЦТ 2026.
 
-## Mandatory stack
+## Возможности
 
-- Java 11
-- Spring Boot 2.6.3
-- Spring Data
-- PostgreSQL + PostGIS
-- springdoc-openapi-ui 1.7.0
-- Docker Compose 1.29.2 compatible configuration
+- Строит варианты трасс с учётом геометрии территории, ограничений на повороты и специальных переходов.
+- Учитывает участки сети, новые камеры, врезки, диаметры и расходы при расчёте стоимости.
+- Объединяет совпадающие участки маршрутов и проверяет вместимость камер: не более четырёх присоединённых участков, включая существующие.
+- Возвращает до двух различных вариантов с рангом и показателями стоимости и длины. Если ОКС невозможно подключить, указывает его в `unconnected_oks_ids` и учитывает штраф.
 
-## Run locally
+Итоговый показатель варианта: `S = 0,7 × (calculated_cost / 25 000 000) + 0,3 × (new_network_length / 100)`. Меньший балл означает более высокий ранг.
 
-```bash
-docker-compose up --build
+## Стек
+
+Java 11, Spring Boot 2.6.3, Spring Data, PostgreSQL/PostGIS, Springdoc OpenAPI и Docker Compose.
+
+## Быстрый запуск в Docker
+
+Из корня репозитория при работающем Docker Desktop:
+
+```powershell
+docker compose up --build -d
+curl.exe -i http://127.0.0.1:8080/api/health
 ```
 
-Application:
-- API: http://localhost:8080
-- Swagger UI: http://localhost:8080/swagger-ui.html
+Ожидается `HTTP 200` и статус `UP`. Swagger UI: http://127.0.0.1:8080/swagger-ui.html. Для остановки выполните `docker compose down`.
 
-Database:
-- PostgreSQL/PostGIS on localhost:5432
-- DB: heat_routing
-- User: heat
-- Password: heat
+Если порт 8080 занят или требуется запуск JAR с установленным JDK 11, используйте [подробную инструкцию](docs/LOCAL_RUN_AND_VARIANTS.md).
 
-## First milestone
+## Расчёт вариантов
 
-1. Accept input GeoJSON.
-2. Validate geometry.
-3. Transform EPSG:4326 -> EPSG:32637 for calculations.
-4. Build routing model.
-5. Return output GeoJSON.
+```powershell
+$dataset = "$env:USERPROFILE\Downloads\Датасет скорректированный.geojson"
+curl.exe -sS -X POST "http://127.0.0.1:8080/api/v1/route/preview-variants" `
+  -F "file=@$dataset;type=application/geo+json" `
+  -o "preview-variants.geojson" `
+  -w "HTTP %{http_code}`n"
+```
+
+Путь `$dataset` замените на путь к своему исходному GeoJSON. В ответе доступны геометрия новых участков и камер, а также объекты `variant_summary` с `variant_id`, `rank`, `score`, `calculated_cost`, `new_network_length` и `unconnected_oks_ids`. Результат можно открыть в QGIS и отфильтровать по `variant_id`. Старый маршрут API для одного варианта: `POST /api/v1/route/preview-all`.
+
+На исправленном тестовом датасете проверено подключение всех 17 ОКС без превышения вместимости существующих камер. Контрольный полный прогон: 171 тест без ошибок; сборка и проверка здоровья Docker-контейнера также выполнены.
