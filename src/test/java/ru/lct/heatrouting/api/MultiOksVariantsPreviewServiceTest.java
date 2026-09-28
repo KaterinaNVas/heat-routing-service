@@ -34,7 +34,7 @@ class MultiOksVariantsPreviewServiceTest {
     void returnsRankedGeoJsonWithConsistentCostsForEachVariant() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         CoordinateTransformService coordinates = new CoordinateTransformService();
-        VariantCalculator pricing = new VariantCalculator(0.3, 0.7);
+        VariantCalculator pricing = new VariantCalculator(0.7, 0.3);
         MultiOksPreviewService service = new MultiOksPreviewService(mapper,
                 new DatasetReader(mapper, new GeoJsonGeometryReader()),
                 new DatasetCoordinateTransformService(coordinates), coordinates,
@@ -46,6 +46,15 @@ class MultiOksVariantsPreviewServiceTest {
         URL resource = getClass().getClassLoader().getResource("test-dataset.geojson");
         assertNotNull(resource);
         JsonNode result = service.calculateVariants(Path.of(resource.toURI()));
+        JsonNode input = mapper.readTree(Path.of(resource.toURI()).toFile());
+        Map<String, JsonNode> inputPoints = new HashMap<>();
+        for (JsonNode feature : input.path("features")) {
+            if ("oks_connection_point".equals(
+                    feature.path("properties").path("object_type").asText())) {
+                inputPoints.put(feature.path("properties").path("id").asText(),
+                        feature.path("geometry").path("coordinates"));
+            }
+        }
 
         Map<String, Double> networkCosts = new HashMap<>();
         Map<String, Double> chamberCosts = new HashMap<>();
@@ -58,6 +67,11 @@ class MultiOksVariantsPreviewServiceTest {
             String variant = properties.path("variant_id").asText();
             switch (properties.path("object_type").asText()) {
                 case "heat_network":
+                    JsonNode start = inputPoints.get(properties.path("start_node_id").asText());
+                    assertNotNull(start, "Неизвестная точка подключения");
+                    JsonNode lineStart = feature.path("geometry").path("coordinates").get(0);
+                    assertEquals(start.get(0).asDouble(), lineStart.get(0).asDouble(), 1e-7);
+                    assertEquals(start.get(1).asDouble(), lineStart.get(1).asDouble(), 1e-7);
                     networkCosts.merge(variant, properties.path("cost").asDouble(), Double::sum);
                     routeCounts.merge(variant, 1, Integer::sum);
                     break;
@@ -68,6 +82,9 @@ class MultiOksVariantsPreviewServiceTest {
                     assertTrue(summaries.add(variant));
                     assertEquals(++expectedRank, properties.path("rank").asInt());
                     double score = properties.path("score").asDouble();
+                    assertEquals(0.7 * properties.path("calculated_cost").asDouble() / 25_000_000
+                                    + 0.3 * properties.path("new_network_length").asDouble() / 100,
+                            score, 1e-9);
                     assertTrue(score >= previousScore);
                     previousScore = score;
                     assertEquals(0, properties.path("unconnected_oks_ids").size());

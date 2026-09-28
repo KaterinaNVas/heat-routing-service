@@ -44,7 +44,7 @@ public class MultiConnectionDraftBuilder {
                 }
                 ConnectionPoint oks = item.getOks();
                 LineString route = item.getRoute().getGeometry();
-                LineString construction = item.getRoute().getConstructionGeometry();
+                LineString construction = route;
                 Double flow = oks.getFlowTph();
                 if (oks.getId() == null || oks.getGeometry() == null
                         || flow == null || !Double.isFinite(flow) || flow <= 0
@@ -72,7 +72,7 @@ public class MultiConnectionDraftBuilder {
                 }
                 routes.add(construction);
                 Node oksNode = new Node("oks:" + oks.getId(),
-                        construction.getStartPoint(), "oks_connection_point");
+                        oks.getGeometry(), "oks_connection_point");
                 if (demands.putIfAbsent(oksNode, flow) != null) {
                     throw new IllegalArgumentException("Повтор ОКС: " + oks.getId());
                 }

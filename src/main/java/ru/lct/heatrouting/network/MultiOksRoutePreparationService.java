@@ -32,7 +32,7 @@ public class MultiOksRoutePreparationService {
     private final SpecialCrossingProcessor crossings = new SpecialCrossingProcessor();
     private final RouteAngleValidator angles = new RouteAngleValidator();
     private final SpecialCrossingCostCalculator crossingCosts = new SpecialCrossingCostCalculator();
-    private final VariantCalculator variantCosts = new VariantCalculator(0.3, 0.7);
+    private final VariantCalculator variantCosts = new VariantCalculator(0.7, 0.3);
 
     public enum RoutePreference { SHORTEST, LOWEST_STANDALONE_COST }
 
@@ -128,9 +128,9 @@ public class MultiOksRoutePreparationService {
     }
 
     private double standaloneCost(PreparedConnection entry, InputDataset metric) {
-        double length = entry.route.getConstructionGeometry().getLength();
+        double length = entry.route.getGeometry().getLength();
         double pipes = crossingCosts.calculate(new NewSegment("candidate", entry.provisionalDiameter,
-                length), entry.route.getConstructionGeometry(), metric.getRestrictions());
+                length), entry.route.getGeometry(), metric.getRestrictions());
         double chamber = entry.connection.isExistingChamber() ? 5_000_000
                 : variantCosts.chamberCost(entry.provisionalDiameter);
         return pipes + chamber;

@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OksBoundaryConstructionTest {
     @Test
-    void routesLeaveOwnBuildingsOnceAndChargeOnlyOutsidePipe() throws Exception {
+    void routesLeaveOwnBuildingsOnceAndStartAtOksConnectionPoint() throws Exception {
         URL resource = getClass().getClassLoader().getResource("test-dataset.geojson");
         assertNotNull(resource);
         InputDataset metric = new DatasetCoordinateTransformService(new CoordinateTransformService())
@@ -58,18 +58,23 @@ class OksBoundaryConstructionTest {
             }
             if (own == null) continue;
             Geometry footprint = own.getGeometry();
-            assertTrue(footprint.getBoundary().distance(priced.getStartPoint()) < 0.01,
-                    "Наружная труба ОКС " + oks.getId() + " начинается не на контуре");
-            assertTrue(priced.intersection(footprint).getLength() < 0.01,
-                    "Наружная труба ОКС " + oks.getId() + " заходит в здание");
+            assertTrue(oks.getGeometry().distance(priced.getStartPoint()) < 0.01,
+                    "Участок ОКС " + oks.getId() + " не начинается в точке подключения");
+            Geometry inside = priced.intersection(footprint);
+            assertEquals(1, inside.getNumGeometries(),
+                    "Участок ОКС " + oks.getId() + " входит в здание более одного раза");
+            assertTrue(inside.getGeometryN(0) instanceof LineString,
+                    "Внутренний подход к ОКС " + oks.getId() + " должен быть прямым");
+            assertEquals(2, inside.getGeometryN(0).getNumPoints(),
+                    "Подход к ОКС " + oks.getId() + " должен быть одной прямой");
         }
 
         for (String id : new String[]{"2", "3"}) {
             ConnectionPoint oks = metric.getConnectionPoints().stream()
                     .filter(p -> id.equals(p.getId())).findFirst().orElseThrow();
-            LineString outside = pricedByOks.get(id);
-            assertTrue(outside.getStartPoint().distance(oks.getGeometry()) > 0.1,
-                    "ОКС " + id + ": внутренняя часть осталась в стоимости");
+            LineString complete = pricedByOks.get(id);
+            assertTrue(complete.getStartPoint().distance(oks.getGeometry()) < 0.01,
+                    "ОКС " + id + ": внутренняя часть пропала из трассы");
         }
     }
 }
