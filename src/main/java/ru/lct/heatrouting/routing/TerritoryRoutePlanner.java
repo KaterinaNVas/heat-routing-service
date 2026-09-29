@@ -17,7 +17,9 @@ import ru.lct.heatrouting.model.RestrictionType;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.PriorityQueue;
 
@@ -150,6 +152,36 @@ public class TerritoryRoutePlanner {
             }
         }
         if (targetIndices.isEmpty()) return List.of();
+        // A tie-in located inside a road/tram polygon needs a straight exit.
+        // The portal is beyond the three-metre special margin and the buffered
+        // obstacle, so the normal visibility graph can reach it from outside.
+        Map<Integer, Integer> specialTargetPortals = new HashMap<>();
+        for (int target : targetIndices) {
+            Point tieIn = vertices.get(target);
+            for (Restriction restriction : metricDataset.getRestrictions()) {
+                RestrictionType type = restriction.getRestrictionType();
+                if (type != RestrictionType.ROAD && type != RestrictionType.TRAM_TRACKS) continue;
+                Geometry area = restriction.getGeometry();
+                if (area == null || area.getDimension() != 2 || !area.covers(tieIn)) continue;
+                Coordinate boundary = DistanceOp.nearestPoints(area.getBoundary(), tieIn)[0];
+                double distance = tieIn.getCoordinate().distance(boundary);
+                if (distance < 1e-7) continue;
+                double offset = clearance(type, diameter) + halfWidth + BUFFER_MARGIN;
+                double extension = Math.max(3.05, offset + 0.2);
+                double scale = (distance + extension) / distance;
+                Point portal = point(tieIn.getX() + (boundary.x - tieIn.getX()) * scale,
+                        tieIn.getY() + (boundary.y - tieIn.getY()) * scale);
+                if (area.buffer(offset).covers(portal)) continue;
+                List<Geometry> otherBarriers = new ArrayList<>();
+                for (int i = 0; i < barriers.size(); i++) {
+                    if (barrierOwners.get(i) != restriction) otherBarriers.add(barriers.get(i));
+                }
+                if (!visible(portal, tieIn, otherBarriers)) continue;
+                specialTargetPortals.put(target, vertices.size());
+                vertices.add(portal);
+                break;
+            }
+        }
         int count = vertices.size();
         double[] distances = new double[count];
         int[] previous = new int[count];
@@ -193,6 +225,8 @@ public class TerritoryRoutePlanner {
                 if (u == v || settled[v]) continue;
                 if (u == 0 && ownOks != null) {
                     if (v < firstPortal || v >= afterPortals) continue;
+                } else if (specialTargetPortals.containsKey(v)) {
+                    if (specialTargetPortals.get(v) != u) continue;
                 } else if (!visible(vertices.get(u), vertices.get(v), barriers)) continue;
                 double alternative = distances[u] + vertices.get(u).distance(vertices.get(v));
                 if (alternative < distances[v]) {

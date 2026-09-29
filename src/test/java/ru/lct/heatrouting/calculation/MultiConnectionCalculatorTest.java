@@ -112,6 +112,36 @@ class MultiConnectionCalculatorTest {
     }
 
     @Test
+    void countsEachPhysicalPipeEndingAtExistingChamber() {
+        Node root = node("root", 0, 0);
+        Node a = node("a", 100, 0);
+        Node b = node("b", 0, 100);
+        Edge first = edge("first", a, root, 100);
+        Edge second = edge("second", b, root, 100);
+        MultiConnectionCalculator calc = new MultiConnectionCalculator(
+                new FlowPropagator(), new VariantCalculator(0.7, 0.3), new TopologyValidator());
+        VariantSummary summary = calc.calculate("v1", root, Map.of(a, first, b, second),
+                Map.of(a, 2.0, b, 2.0), true, List.of(), List.of());
+        assertEquals(2, summary.getExistingChamberTieInCount());
+        assertEquals(10_000_000.0, summary.getExistingChamberTieInCost(), 1e-9);
+    }
+
+    @Test
+    void upgradesWholeContinuousSameFlowSectionForItsCombinedLength() {
+        Node root = node("root", 0, 0);
+        Node middle = node("middle", 200, 0);
+        Node oks = node("oks", 400, 0);
+        Edge near = edge("near", middle, root, 200);
+        Edge far = edge("far", oks, middle, 200);
+        MultiConnectionCalculator calc = new MultiConnectionCalculator(
+                new FlowPropagator(), new VariantCalculator(0.7, 0.3), new TopologyValidator());
+        VariantSummary summary = calc.calculate("v1", root, Map.of(middle, near, oks, far),
+                Map.of(oks, 2.0), false, List.of(), List.of());
+        assertEquals(2, summary.getSegments().size());
+        assertTrue(summary.getSegments().stream().allMatch(segment -> segment.getDiameter() == 100));
+    }
+
+    @Test
     void unconnectedOksAddsPenalty() {
         Node root = node("root", 0, 0);
         Node a = node("a", 100, 0);

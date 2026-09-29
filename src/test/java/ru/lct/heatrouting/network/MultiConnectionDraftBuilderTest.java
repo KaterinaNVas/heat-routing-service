@@ -58,7 +58,7 @@ class MultiConnectionDraftBuilderTest {
     }
 
     @Test
-    void twoOksAtOneChamberAreChargedForOneTieIn() {
+    void twoIndependentPipesAtOneChamberAreChargedForTwoTieIns() {
         List<MultiConnectionDraftBuilder.Draft> drafts =
                 new MultiConnectionDraftBuilder().build(prepare(dataset(false)));
         assertEquals(1, drafts.size());
@@ -69,8 +69,8 @@ class MultiConnectionDraftBuilderTest {
                 new MultiConnectionCalculator(new FlowPropagator(), pricing,
                         new TopologyValidator()), pricing);
         VariantSummary summary = totals.calculateVariant("v1", drafts, List.of(), List.of());
-        assertEquals(1, summary.getExistingChamberTieInCount());
-        assertEquals(5_000_000, summary.getExistingChamberTieInCost(), 0.01);
+        assertEquals(2, summary.getExistingChamberTieInCount());
+        assertEquals(10_000_000, summary.getExistingChamberTieInCost(), 0.01);
         assertEquals(2, summary.getSegments().size());
         assertEquals(2.0, summary.getFlowsByEdgeId().get("multi_g1_e1"), 1e-9);
         assertEquals(3.0, summary.getFlowsByEdgeId().get("multi_g1_e2"), 1e-9);

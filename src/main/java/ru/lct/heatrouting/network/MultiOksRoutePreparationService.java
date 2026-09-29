@@ -9,6 +9,7 @@ import ru.lct.heatrouting.calculation.VariantCalculator;
 import ru.lct.heatrouting.cost.DiameterCatalog;
 import ru.lct.heatrouting.model.ConnectionPoint;
 import ru.lct.heatrouting.model.InputDataset;
+import ru.lct.heatrouting.model.RestrictionType;
 import ru.lct.heatrouting.routing.TerritoryRoutePlanner;
 
 import java.util.ArrayList;
@@ -219,6 +220,15 @@ public class MultiOksRoutePreparationService {
                     "v1_chamber_oks_" + oks.getId());
         }
         try {
+            // The first leg is allowed to leave the building being connected;
+            // every other forbidden footprint, including railway, remains blocked.
+            List<ru.lct.heatrouting.model.Restriction> forbiddenExceptOwnOks =
+                    metric.getRestrictions().stream()
+                            .filter(restriction -> restriction.getRestrictionType() != RestrictionType.OKS
+                                    || restriction.getGeometry() == null
+                                    || !restriction.getGeometry().covers(oks.getGeometry()))
+                            .collect(java.util.stream.Collectors.toList());
+            crossings.validateNoForbiddenCrossings(route.getGeometry(), forbiddenExceptOwnOks);
             crossings.validateAngles(route.getGeometry(), metric.getRestrictions());
             crossingCosts.validateStraightSpecialPasses(route.getGeometry(), metric.getRestrictions());
         } catch (IllegalStateException invalidCrossing) {

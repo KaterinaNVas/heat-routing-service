@@ -30,18 +30,18 @@ public class CrossingRules {
         }
     }
 
-    private static final Map<RestrictionType, Rule> RULES = Map.of(
-        RestrictionType.ROAD,           new Rule(true,  1.5, 45.0, 1.0, 1.60),
-        RestrictionType.TRAM_TRACKS,    new Rule(true,  1.5, 45.0, 1.2, 1.75),
-        RestrictionType.GAS_PIPELINE,   new Rule(true,  2.0,  0.0, 0.2, 1.25),
-        RestrictionType.POWER_CABLE,    new Rule(true,  2.0,  0.0, 0.5, 1.15),
-        RestrictionType.HEAT_NETWORK,   new Rule(true,  1.0,  0.0, 0.5, 1.05),
-
-        RestrictionType.OKS,            new Rule(false, 5.0,  0.0, 0.0, 1.0),
-        RestrictionType.PARK,           new Rule(false, 1.0,  0.0, 0.0, 1.0),
-        RestrictionType.SOCIAL_AREA,    new Rule(false, 1.0,  0.0, 0.0, 1.0),
-        RestrictionType.PROHIBITED_SITE,new Rule(false, 1.0,  0.0, 0.0, 1.0),
-        RestrictionType.WATER,          new Rule(false, 1.0,  0.0, 0.0, 1.0)
+    private static final Map<RestrictionType, Rule> RULES = Map.ofEntries(
+        Map.entry(RestrictionType.ROAD,            new Rule(true,  1.5, 45.0, 1.0, 1.60)),
+        Map.entry(RestrictionType.TRAM_TRACKS,     new Rule(true,  1.5, 45.0, 1.2, 1.75)),
+        Map.entry(RestrictionType.GAS_PIPELINE,    new Rule(true,  2.0,  0.0, 0.2, 1.25)),
+        Map.entry(RestrictionType.POWER_CABLE,     new Rule(true,  2.0,  0.0, 0.5, 1.15)),
+        Map.entry(RestrictionType.HEAT_NETWORK,    new Rule(true,  1.0,  0.0, 0.5, 1.05)),
+        Map.entry(RestrictionType.OKS,             new Rule(false, 5.0,  0.0, 0.0, 1.0)),
+        Map.entry(RestrictionType.PARK,            new Rule(false, 1.0,  0.0, 0.0, 1.0)),
+        Map.entry(RestrictionType.SOCIAL_AREA,     new Rule(false, 1.0,  0.0, 0.0, 1.0)),
+        Map.entry(RestrictionType.PROHIBITED_SITE, new Rule(false, 1.0,  0.0, 0.0, 1.0)),
+        Map.entry(RestrictionType.WATER,           new Rule(false, 1.0,  0.0, 0.0, 1.0)),
+        Map.entry(RestrictionType.RAILWAY,         new Rule(false, 1.0,  0.0, 0.0, 1.0))
     );
 
     public static Rule getRule(RestrictionType type) {

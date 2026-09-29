@@ -52,6 +52,14 @@ class SpecialCrossingProcessorTest {
     }
 
     @Test
+    void rejectsRailwayCrossing() {
+        Restriction railway = new Restriction("rail", RestrictionType.RAILWAY, null,
+                polygon(4, -1, 6, 1));
+        assertThrows(IllegalStateException.class, () ->
+                processor.validateNoForbiddenCrossings(route(0, 0, 10, 0), List.of(railway)));
+    }
+
+    @Test
     void acceptsRouteCrossingAllowedZone() {
         LineString route = route(0, 0, 10, 0);
         Restriction road = new Restriction("r1", RestrictionType.ROAD, null,
